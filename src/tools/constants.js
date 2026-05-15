@@ -1,0 +1,11 @@
+export const EXEC_TIMEOUT_MS = 30_000;
+export const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+export const FILE_READ_MAX_BYTES = 500_000;
+export const WEB_FETCH_MAX_CHARS = 50_000;
+export const WEB_SEARCH_MAX_RESULTS = 10;
+export const TASK_MAX_CONCURRENT = 20;
+export const CRON_MAX_ENTRIES = 50;
+export const GREP_MAX_RESULTS = 200;
+export const GLOB_MAX_RESULTS = 500;
+export const TASK_OUTPUT_MAX_LINES = 1000;
+export const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '.next', '.cache'];
