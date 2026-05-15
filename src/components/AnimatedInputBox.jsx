@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { ThinkingText } from './ThinkingText.jsx';
 import { COLORS } from '../constants.js';
 
-const SLASH_COMMANDS = ['/help', '/model', '/clear'];
+const SLASH_COMMANDS = ['/help', '/model', '/clear', '/resume', '/delete'];
 
 export const AnimatedInputBox = ({ isLoading, input, setInput, handleSubmit, actualScroll }) => {
   const [, setTick] = useState(0);

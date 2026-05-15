@@ -9,12 +9,13 @@ import path from 'node:path';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { wrapText } from './utils/text.js';
 import { formatToolResult } from './utils/toolFormatters.js';
-import { saveSession, loadSession, listSessions, deleteSession, generateSessionId } from './utils/sessions.js';
+import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
 
 // Components
 import { AnimatedLogo } from './components/AnimatedLogo.jsx';
 import { AnimatedInputBox } from './components/AnimatedInputBox.jsx';
 import { ModelSelector } from './components/ModelSelector.jsx';
+import { SessionPicker } from './components/SessionPicker.jsx';
 
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
@@ -44,6 +45,8 @@ const App = () => {
   const [chatScroll, setChatScroll] = useState(0);
   const [showAgentDetail, setShowAgentDetail] = useState(null);
   const [sessionId, setSessionId] = useState(null);
+  const [showSessionPicker, setShowSessionPicker] = useState(false);
+  const [pickerSessions, setPickerSessions] = useState([]);
 
   const cwd = process.cwd();
   const homeDir = os.homedir();
@@ -197,7 +200,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /clear        - Clear the chat history\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -213,33 +216,28 @@ const App = () => {
       } else if (lowerQuery === '/clear') {
         setMessages([]);
         setSessionId(null);
-      } else if (lowerQuery === '/resume') {
+      } else if (lowerQuery === '/resume' || lowerQuery.startsWith('/resume ')) {
         const sessions = await listSessions();
         if (sessions.length === 0) {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No saved sessions found.' }]);
         } else {
-          const lines = ['[Sessions] Saved sessions:\n'];
-          sessions.forEach((s, i) => {
-            const date = new Date(s.savedAt).toLocaleString();
-            lines.push(`  ${i + 1}. ${s.id}  ${s.model}  ${s.messageCount} msgs  ${date}`);
-            lines.push(`     ${s.preview}`);
-          });
-          lines.push('\nUse /resume <session_id> to restore a session.');
-          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
+          // Sort favorites first
+          sessions.sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+          setPickerSessions(sessions);
+          setShowSessionPicker(true);
+          setInput('');
+          return;
         }
-      } else if (lowerQuery.startsWith('/resume ')) {
-        const targetId = trimmedQuery.split(' ')[1];
-        const session = await loadSession(targetId);
-        if (!session) {
-          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Session not found: ${targetId}` }]);
+      } else if (lowerQuery === '/delete' || lowerQuery.startsWith('/delete ')) {
+        const sessions = await listSessions();
+        if (sessions.length === 0) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No sessions to delete.' }]);
         } else {
-          setMessages(session.messages);
-          setSessionId(session.id);
-          if (session.model) {
-            setActiveModel(session.model);
-            saveModel(session.model);
-          }
-          setMessages(prev => [...prev, { role: 'system', content: `[System] Resumed session ${session.id} (${session.messages.length} messages)` }]);
+          sessions.sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+          setPickerSessions(sessions);
+          setShowSessionPicker(true);
+          setInput('');
+          return;
         }
       } else {
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Unknown command. Type /help for available commands.` }]);
@@ -397,6 +395,37 @@ const App = () => {
     } finally {
       setIsLoading(false);
     }
+
+    // Generate AI title for new sessions
+    if (sessionId && conversation.length >= 3) {
+      generateTitle(sessionId, conversation);
+    }
+  };
+
+  const generateTitle = async (sid, msgs) => {
+    try {
+      const res = await fetch('https://opencode.ai/zen/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY || ''}`,
+        },
+        body: JSON.stringify({
+          model: activeModel,
+          messages: [
+            { role: 'system', content: 'Generate a short title (max 5 words) for this conversation. Reply with ONLY the title, no quotes or punctuation.' },
+            { role: 'user', content: msgs.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200) },
+          ],
+          stream: false,
+          max_tokens: 20,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const title = (json.choices?.[0]?.message?.content || '').trim().replace(/["'.]/g, '');
+        if (title) saveSession(sid, msgs, activeModel, title);
+      }
+    } catch {}
   };
 
   const { visibleLines, actualScroll } = useMemo(() => {

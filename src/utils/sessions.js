@@ -12,17 +12,31 @@ function sessionFilename(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
 
-export async function saveSession(id, messages, model) {
+export async function saveSession(id, messages, model, title) {
   await ensureDir();
+  // Preserve existing title and favorite status
+  const existing = await loadSession(id);
+  const finalTitle = title || existing?.title || null;
+  const favorite = existing?.favorite || false;
   const data = {
     id,
     model,
+    title: finalTitle,
+    favorite,
     messages: messages.filter(m => m.role !== 'tool_call'),
     savedAt: new Date().toISOString(),
     messageCount: messages.length,
     preview: getPreview(messages),
   };
   await fs.writeFile(sessionFilename(id), JSON.stringify(data, null, 2), 'utf-8');
+}
+
+export async function setSessionFavorite(id, fav) {
+  const session = await loadSession(id);
+  if (!session) return false;
+  session.favorite = fav;
+  await fs.writeFile(sessionFilename(id), JSON.stringify(session, null, 2), 'utf-8');
+  return true;
 }
 
 export async function loadSession(id) {
