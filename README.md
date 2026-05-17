@@ -1,4 +1,4 @@
-# Mr. Vibe
+# Vibe Code
 
 Terminal-based AI chat client built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs). Chat with LLMs directly from your terminal with 26 built-in tools, sub-agents, streaming responses, and a rich UI.
 
@@ -25,6 +25,10 @@ npm start
 - Model switching with `/model`
 - Chat history and scrollable output
 - Model persistence across sessions
+- Session save/restore with `/resume`
+- `/init` to analyze codebase and create CLAUDE.md
+- File mentions with `@` autocomplete
+- Command dropdown with `/` autocomplete
 
 ## Keyboard Shortcuts
 
@@ -44,7 +48,11 @@ npm start
 | `/help` | Show help |
 | `/model` | Open model selector |
 | `/model <id>` | Switch model directly |
+| `/init` | Analyze codebase, create CLAUDE.md |
+| `/resume` | List/resume saved sessions |
+| `/delete` | Delete a saved session |
 | `/clear` | Clear chat history |
+| `/exit` | Exit the app |
 
 ## Tools
 

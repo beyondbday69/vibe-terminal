@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Mistral Vibe — a terminal-based AI chat client built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs) and React. It renders a rich TUI in the terminal for chatting with LLMs via the `opencode.ai/zen/v1` API. Supports 26 built-in tools (function calling) that the AI can invoke, model switching, chat history, and scrollable output.
+Vibe Code — a terminal-based AI chat client built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs) and React. It renders a rich TUI in the terminal for chatting with LLMs via the `opencode.ai/zen/v1` API. Supports 26 built-in tools (function calling) that the AI can invoke, model switching, chat history, and scrollable output.
 
 ## Commands
 

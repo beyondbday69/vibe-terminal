@@ -23,7 +23,7 @@ const agents = new Map();
 let agentCounter = 0;
 const nextAgentId = () => `agent_${++agentCounter}`;
 
-const API_URL = 'https://opencode.ai/zen/v1/chat/completions';
+const API_URL = () => `${baseUrl}/chat/completions`;
 
 function summarizeResult(funcName, result) {
   if (typeof result === 'string') return result.slice(0, 100);
@@ -47,9 +47,14 @@ function shortenPath(p) {
 }
 
 let apiKey = '';
+let baseUrl = 'https://opencode.ai/zen/v1';
 
 export function setApiKey(key) {
   apiKey = key;
+}
+
+export function setBaseUrl(url) {
+  baseUrl = url;
 }
 
 export function setModel(model) {
@@ -64,7 +69,7 @@ let activeModel = 'gpt-5.5';
 
 async function callAI(messages) {
   const tools = await getToolsDefinition();
-  const res = await fetch(API_URL, {
+  const res = await fetch(API_URL(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

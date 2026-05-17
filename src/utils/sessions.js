@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'os';
 
-const SESSIONS_DIR = path.join(os.homedir(), '.vibe-terminal', 'sessions');
+const SESSIONS_DIR = path.join(os.homedir(), '.vibe-code', 'sessions');
 
 async function ensureDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });

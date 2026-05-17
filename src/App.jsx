@@ -9,26 +9,71 @@ import path from 'node:path';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { wrapText } from './utils/text.js';
 import { formatToolResult } from './utils/toolFormatters.js';
+
+function stripMarkdown(text) {
+  if (!text) return '';
+  let result = text;
+  // Remove code block markers but keep content
+  result = result.replace(/```[\w]*\n?/g, '');
+  result = result.replace(/```$/gm, '');
+  // Remove inline code backticks
+  result = result.replace(/`([^`]+)`/g, '$1');
+  // Remove bold/italic markers
+  result = result.replace(/\*\*\*(.+?)\*\*\*/g, '$1');
+  result = result.replace(/\*\*(.+?)\*\*/g, '$1');
+  result = result.replace(/\*(.+?)\*/g, '$1');
+  result = result.replace(/___(.+?)___/g, '$1');
+  result = result.replace(/__(.+?)__/g, '$1');
+  result = result.replace(/_(.+?)_/g, '$1');
+  // Remove headers
+  result = result.replace(/^#{1,6}\s+/gm, '');
+  // Remove bullet markers (keep text)
+  result = result.replace(/^\s*[-*+]\s+/gm, '  ');
+  // Remove numbered list markers (keep text)
+  result = result.replace(/^\s*\d+\.\s+/gm, '  ');
+  return result;
+}
 import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
+import { listFiles } from './utils/fileList.js';
 
 // Components
 import { AnimatedLogo } from './components/AnimatedLogo.jsx';
 import { AnimatedInputBox } from './components/AnimatedInputBox.jsx';
 import { ModelSelector } from './components/ModelSelector.jsx';
 import { SessionPicker } from './components/SessionPicker.jsx';
+import { CommandDropdown, COMMANDS } from './components/CommandDropdown.jsx';
 
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
 import { executeToolCall } from './tools/executor.js';
-import { setApiKey, setModel, getAgents } from './tools/handlers/agents.js';
+import { setApiKey, setBaseUrl, setModel, getAgents } from './tools/handlers/agents.js';
 
-const CONFIG_PATH = path.join(os.homedir(), '.vibe-terminal.json');
+const CONFIG_DIR = path.join(os.homedir(), '.vibe-code');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
-const saveModel = async (model) => {
+const DEFAULT_PROVIDER = {
+  name: 'opencode',
+  baseUrl: '${provider.baseUrl}',
+  apiKey: '',
+};
+
+const loadConfig = async () => {
   try {
-    await fs.writeFile(CONFIG_PATH, JSON.stringify({ activeModel: model }), 'utf-8');
+    return JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+};
+
+const saveConfig = async (updates) => {
+  try {
+    await fs.mkdir(CONFIG_DIR, { recursive: true });
+    const existing = await loadConfig();
+    await fs.writeFile(CONFIG_PATH, JSON.stringify({ ...existing, ...updates }, null, 2), 'utf-8');
   } catch {}
 };
+
+const saveModel = async (model) => saveConfig({ activeModel: model });
 
 let toolIdCounter = 0;
 const nextToolId = () => `tool_${++toolIdCounter}`;
@@ -36,9 +81,17 @@ const nextToolId = () => `tool_${++toolIdCounter}`;
 const App = () => {
   const { columns: termWidth, rows: termHeight } = useTerminalSize();
 
+  // Ensure stdin is in raw mode for arrow key capture
+  useEffect(() => {
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+      process.stdin.setRawMode(true);
+    }
+  }, []);
+
   const [input, setInput] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
   const [activeModel, setActiveModel] = useState('gpt-5.5');
+  const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -47,6 +100,55 @@ const App = () => {
   const [sessionId, setSessionId] = useState(null);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [pickerSessions, setPickerSessions] = useState([]);
+  const [dropdownIndex, setDropdownIndex] = useState(0);
+  const [pendingDropdownAction, setPendingDropdownAction] = useState(null);
+  const [fileList, setFileList] = useState([]);
+
+  // Load files when @ is typed
+  useEffect(() => {
+    if (input.includes('@')) {
+      listFiles().then(f => setFileList(f)).catch(() => {});
+    }
+  }, [input.includes('@')]);
+  const sessionIdRef = React.useRef(sessionId);
+  sessionIdRef.current = sessionId;
+
+  // Handle async dropdown actions (resume/delete) outside useInput
+  useEffect(() => {
+    if (!pendingDropdownAction) return;
+    const action = pendingDropdownAction;
+    setPendingDropdownAction(null);
+    (async () => {
+      if (action.type === 'resume') {
+        const session = await loadSession(action.session.id);
+        if (session) {
+          setMessages(session.messages);
+          setSessionId(session.id);
+          if (session.model) { setActiveModel(session.model); saveModel(session.model); }
+          setMessages(prev => [...prev, { role: 'system', content: `Resumed: ${session.title || session.id}` }]);
+        }
+      } else if (action.type === 'delete') {
+        await deleteSession(action.session.id);
+        if (action.currentSessionId === action.session.id) setSessionId(null);
+        setMessages(prev => [...prev, { role: 'system', content: `Deleted: ${action.session.title || action.session.id}` }]);
+      }
+    })();
+  }, [pendingDropdownAction]);
+
+  const isSubDropdown = (input.startsWith('/model ') || input.startsWith('/resume ') || input.startsWith('/delete '));
+  const hasAtMention = input.includes('@');
+  const showDropdown = (input.startsWith('/') && input.length > 0) || hasAtMention;
+  const filteredCommands = isSubDropdown || hasAtMention ? [] : COMMANDS.filter(c => c.cmd.startsWith(input.toLowerCase()));
+  const dropdownModels = isSubDropdown && input.startsWith('/model ') ? availableModels : [];
+  const dropdownSessions = isSubDropdown && (input.startsWith('/resume ') || input.startsWith('/delete ')) ? pickerSessions : [];
+  const dropdownFiles = hasAtMention ? fileList : [];
+
+  // Load sessions when /resume or /delete is typed
+  useEffect(() => {
+    if (input.startsWith('/resume') || input.startsWith('/delete')) {
+      listSessions().then(s => setPickerSessions(s)).catch(() => {});
+    }
+  }, [input.startsWith('/resume'), input.startsWith('/delete')]);
 
   const cwd = process.cwd();
   const homeDir = os.homedir();
@@ -114,30 +216,46 @@ const App = () => {
 
   // Initialize agent system with API key and model
   useEffect(() => {
-    const key = process.env.OPENAI_API_KEY || '';
-    setApiKey(key);
+    (async () => {
+      const config = await loadConfig();
+      // Load saved provider
+      if (config.provider) {
+        setProvider(config.provider);
+        setBaseUrl(config.provider.baseUrl);
+        if (config.provider.apiKey) {
+          process.env.OPENAI_API_KEY = config.provider.apiKey;
+          setApiKey(config.provider.apiKey);
+        }
+      } else if (config.apiKey) {
+        // Legacy: single api key saved
+        process.env.OPENAI_API_KEY = config.apiKey;
+        setApiKey(config.apiKey);
+      } else {
+        setApiKey(process.env.OPENAI_API_KEY || '');
+      }
+      if (config.activeModel) setActiveModel(config.activeModel);
+    })();
   }, []);
 
   useEffect(() => {
     setModel(activeModel);
   }, [activeModel]);
 
+  // Fetch models when provider changes
   useEffect(() => {
-    const init = async () => {
+    const fetchModels = async () => {
       try {
-        const config = JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'));
-        if (config.activeModel) setActiveModel(config.activeModel);
-      } catch {}
-      try {
-        const res = await fetch('https://opencode.ai/zen/v1/models');
+        const res = await fetch(`${provider.baseUrl}/models`, {
+          headers: provider.apiKey ? { 'Authorization': `Bearer ${provider.apiKey}` } : {},
+        });
         const json = await res.json();
         setAvailableModels(json.data.map(m => m.id));
       } catch {
         setAvailableModels([]);
       }
     };
-    init();
-  }, []);
+    fetchModels();
+  }, [provider.baseUrl, provider.apiKey]);
 
   useInput((inputChar, key) => {
     if (showAgentDetail) {
@@ -164,6 +282,73 @@ const App = () => {
       return;
     }
 
+    // File mention navigation @
+    if (hasAtMention && showDropdown) {
+      const lastAt = input.lastIndexOf('@');
+      const query = input.slice(lastAt + 1).toLowerCase();
+      const items = fileList.filter(f => f.toLowerCase().includes(query));
+      if (items.length > 0) {
+        if (key.upArrow) { setDropdownIndex(prev => Math.max(0, prev - 1)); return; }
+        if (key.downArrow) { setDropdownIndex(prev => Math.min(items.length - 1, prev + 1)); return; }
+        if (key.return) {
+          const selected = items[dropdownIndex];
+          if (selected) {
+            setInput(input.slice(0, lastAt) + '@' + selected + ' ');
+            setDropdownIndex(0);
+          }
+          return;
+        }
+        if (key.escape) { setInput(input.replace(/@[^@]*$/, '')); return; }
+      }
+    }
+
+    // Sub-dropdown navigation (models, sessions)
+    if (isSubDropdown && showDropdown) {
+      let items = [];
+      if (input.startsWith('/model ')) {
+        const query = input.slice(7).toLowerCase();
+        items = availableModels.filter(m => m.toLowerCase().includes(query));
+      } else if (input.startsWith('/resume ') || input.startsWith('/delete ')) {
+        const query = (input.split(' ')[1] || '').toLowerCase();
+        items = pickerSessions.filter(s => (s.title || s.preview || s.id || '').toLowerCase().includes(query));
+      }
+      if (items.length > 0) {
+        if (key.upArrow) { setDropdownIndex(prev => Math.max(0, prev - 1)); return; }
+        if (key.downArrow) { setDropdownIndex(prev => Math.min(items.length - 1, prev + 1)); return; }
+        if (key.return) {
+          const selected = items[dropdownIndex];
+          if (selected) {
+            if (input.startsWith('/model ')) {
+              setActiveModel(selected);
+              saveModel(selected);
+              setMessages(prev => [...prev, { role: 'system', content: `Model switched to: ${selected}` }]);
+              setInput('');
+            } else {
+              setPendingDropdownAction({ type: input.startsWith('/resume ') ? 'resume' : 'delete', session: selected, currentSessionId: sessionId });
+              setInput('');
+            }
+            setDropdownIndex(0);
+          }
+          return;
+        }
+        if (key.escape) { setInput(''); return; }
+      }
+    }
+
+    // Main command dropdown navigation
+    if (showDropdown && filteredCommands.length > 0) {
+      if (key.upArrow) { setDropdownIndex(prev => Math.max(0, prev - 1)); return; }
+      if (key.downArrow) { setDropdownIndex(prev => Math.min(filteredCommands.length - 1, prev + 1)); return; }
+      if (key.return) {
+        const selected = filteredCommands[dropdownIndex];
+        if (selected) {
+          setInput(selected.cmd + ' ');
+          setDropdownIndex(0);
+        }
+        return;
+      }
+    }
+
     // Scrolling
     if (key.upArrow) { setChatScroll(prev => prev + 1); return; }
     if (key.downArrow) { setChatScroll(prev => Math.max(0, prev - 1)); return; }
@@ -178,11 +363,12 @@ const App = () => {
     }
     if (key.backspace || key.delete) {
       setInput(prev => prev.slice(0, -1));
+      setDropdownIndex(0);
       return;
     }
     if (inputChar && !key.ctrl && !key.meta) {
-      // Handle paste (multi-char input) and single chars
       setInput(prev => prev + inputChar);
+      if (inputChar !== '@') setDropdownIndex(0);
     }
   }, { isActive: !showModelSelector });
 
@@ -200,7 +386,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -213,6 +399,79 @@ const App = () => {
           saveModel(newModel);
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Model switched to: ${newModel}` }]);
         }
+      } else if (lowerQuery === '/apikey') {
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /apikey <your-api-key>\nThe key is saved to ~/.vibe-code/config.json' }]);
+      } else if (lowerQuery.startsWith('/apikey ')) {
+        const newKey = trimmedQuery.slice(8).trim();
+        if (newKey) {
+          try {
+            const configPath = path.join(os.homedir(), '.vibe-code', 'config.json');
+            await fs.mkdir(path.dirname(configPath), { recursive: true });
+            let config = {};
+            try { config = JSON.parse(await fs.readFile(configPath, 'utf-8')); } catch {}
+            config.apiKey = newKey;
+            await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+            process.env.OPENAI_API_KEY = newKey;
+            setApiKey(newKey);
+            setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: '[System] API key saved successfully.' }]);
+          } catch (err) {
+            setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: `[Error] Failed to save API key: ${err.message}` }]);
+          }
+        }
+      } else if (lowerQuery === '/provider') {
+        const lines = [
+          `[Provider] Current: ${provider.name}`,
+          `  Base URL: ${provider.baseUrl}`,
+          `  API Key: ${provider.apiKey ? '****' + provider.apiKey.slice(-4) : '(not set)'}`,
+          '',
+          'Usage:',
+          '  /provider opencode              - Use opencode.ai (default)',
+          '  /provider nvidia <api_key>      - Use NVIDIA NIM API',
+          '  /provider custom <url> <key>    - Use custom OpenAI-compatible API',
+        ];
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
+      } else if (lowerQuery.startsWith('/provider ')) {
+        const parts = trimmedQuery.split(/\s+/);
+        const providerName = parts[1]?.toLowerCase();
+        let newProvider;
+        if (providerName === 'opencode') {
+          newProvider = { name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' };
+          newProvider.apiKey = process.env.OPENAI_API_KEY || '';
+        } else if (providerName === 'nvidia') {
+          const key = parts[2] || '';
+          newProvider = { name: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: key };
+        } else if (providerName === 'custom') {
+          const url = parts[2] || '';
+          const key = parts[3] || '';
+          if (!url) {
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /provider custom <base_url> <api_key>' }]);
+            setInput('');
+            return;
+          }
+          newProvider = { name: 'custom', baseUrl: url, apiKey: key };
+        } else {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Unknown provider. Use: opencode, nvidia, custom' }]);
+          setInput('');
+          return;
+        }
+        setProvider(newProvider);
+        setBaseUrl(newProvider.baseUrl);
+        if (newProvider.apiKey) {
+          process.env.OPENAI_API_KEY = newProvider.apiKey;
+          setApiKey(newProvider.apiKey);
+        }
+        await saveConfig({ provider: newProvider });
+        // Fetch models from new provider
+        try {
+          const res = await fetch(`${newProvider.baseUrl}/models`, {
+            headers: newProvider.apiKey ? { 'Authorization': `Bearer ${newProvider.apiKey}` } : {},
+          });
+          const json = await res.json();
+          setAvailableModels(json.data.map(m => m.id));
+        } catch {
+          setAvailableModels([]);
+        }
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Switched to provider: ${newProvider.name} (${newProvider.baseUrl})` }]);
       } else if (lowerQuery === '/clear') {
         setMessages([]);
         setSessionId(null);
@@ -239,6 +498,186 @@ const App = () => {
           setInput('');
           return;
         }
+      } else if (lowerQuery === '/init') {
+        const initPrompt = `Please analyze this codebase and create a CLAUDE.md file, which will be given to future instances of Claude Code to operate in this repository.
+
+What to add:
+1. Commands that will be commonly used, such as how to build, lint, and run tests. Include the necessary commands to develop in this codebase, such as how to run a single test.
+2. High-level code architecture and structure so that future instances can be productive more quickly. Focus on the "big picture" architecture that requires reading multiple files to understand.
+
+Usage notes:
+- If there's already a CLAUDE.md, suggest improvements to it.
+- When you make the initial CLAUDE.md, do not repeat yourself and do not include obvious instructions like "Provide helpful error messages to users", "Write unit tests for all new utilities", "Never include sensitive information (API keys, tokens) in code or commits".
+- Avoid listing every component or file structure that can be easily discovered.
+- Don't include generic development practices.
+- If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include the important parts.
+- If there is a README.md, make sure to include the important parts.
+- Do not make up information such as "Common Development Tasks", "Tips for Development", "Support and Documentation" unless this is expressly included in other files that you read.
+- Be sure to prefix the file with the following text:
+
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.`;
+        // Inject as user message so the AI processes it with full tool access
+        let conversation = [...messages, { role: 'user', content: initPrompt }];
+        setMessages(conversation);
+        setInput('');
+        setIsLoading(true);
+        try {
+          const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
+          const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
+            },
+            body: JSON.stringify({
+              model: activeModel,
+              messages: apiMessages,
+              tools: toolsDefinition,
+              stream: true,
+            }),
+          });
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => '');
+            throw new Error(`${res.status} API Error: ${errBody.slice(0, 200)}`);
+          }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let streamedContent = '';
+          let streamedReasoning = '';
+          let toolCalls = [];
+          conversation = [...conversation, { role: 'assistant', content: '' }];
+          setMessages([...conversation]);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+              const data = trimmed.slice(6);
+              if (data === '[DONE]') continue;
+              let parsed;
+              try { parsed = JSON.parse(data); } catch { continue; }
+              const choice = parsed.choices?.[0];
+              if (!choice) continue;
+              const delta = choice.delta || {};
+              if (delta.reasoning_content) streamedReasoning += delta.reasoning_content;
+              if (delta.content) {
+                streamedContent += delta.content;
+                conversation[conversation.length - 1] = { role: 'assistant', content: streamedContent };
+                setMessages([...conversation]);
+              }
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0;
+                  if (!toolCalls[idx]) toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                  if (tc.id) toolCalls[idx].id = tc.id;
+                  if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                  if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                }
+              }
+            }
+          }
+          const responseMsg = { role: 'assistant' };
+          if (streamedContent) responseMsg.content = streamedContent;
+          if (streamedReasoning) responseMsg.reasoning_content = streamedReasoning;
+          if (toolCalls.length > 0) responseMsg.tool_calls = toolCalls;
+          conversation[conversation.length - 1] = responseMsg;
+          // Execute tool calls if any (same loop as main handleSubmit)
+          if (responseMsg.tool_calls && responseMsg.tool_calls.length > 0) {
+            setMessages([...conversation]);
+            let requiresApiCall = true;
+            while (requiresApiCall) {
+              for (const call of responseMsg.tool_calls) {
+                const funcName = call.function.name;
+                let funcArgs;
+                try { funcArgs = JSON.parse(call.function.arguments || '{}'); } catch { funcArgs = {}; }
+                if (!call.id) call.id = `call_${Date.now()}`;
+                const toolId = `tool_${Date.now()}`;
+                conversation = [...conversation, { role: 'tool_call', toolId, name: funcName, args: funcArgs, status: 'running', result: null }];
+                setMessages([...conversation]);
+                const result = await executeToolCall(funcName, funcArgs);
+                conversation[conversation.length - 1] = { ...conversation[conversation.length - 1], status: 'completed', result };
+                setMessages([...conversation]);
+                const rawContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
+                conversation = [...conversation, { role: 'tool', tool_call_id: call.id, content: rawContent }];
+              }
+              const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
+              const res2 = await fetch(`${provider.baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
+                },
+                body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: toolsDefinition, stream: true }),
+              });
+              if (!res2.ok) throw new Error(`${res2.status} API Error`);
+              const reader2 = res2.body.getReader();
+              let buffer2 = '', streamed2 = '', reasoning2 = '', toolCalls2 = [];
+              conversation = [...conversation, { role: 'assistant', content: '' }];
+              setMessages([...conversation]);
+              while (true) {
+                const { done, value } = await reader2.read();
+                if (done) break;
+                buffer2 += decoder.decode(value, { stream: true });
+                const lines2 = buffer2.split('\n');
+                buffer2 = lines2.pop();
+                for (const line of lines2) {
+                  const trimmed = line.trim();
+                  if (!trimmed || !trimmed.startsWith('data: ')) continue;
+                  const data = trimmed.slice(6);
+                  if (data === '[DONE]') continue;
+                  let parsed;
+                  try { parsed = JSON.parse(data); } catch { continue; }
+                  const choice = parsed.choices?.[0];
+                  if (!choice) continue;
+                  const delta = choice.delta || {};
+                  if (delta.reasoning_content) reasoning2 += delta.reasoning_content;
+                  if (delta.content) {
+                    streamed2 += delta.content;
+                    conversation[conversation.length - 1] = { role: 'assistant', content: streamed2 };
+                    setMessages([...conversation]);
+                  }
+                  if (delta.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      const idx = tc.index ?? 0;
+                      if (!toolCalls2[idx]) toolCalls2[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+                      if (tc.id) toolCalls2[idx].id = tc.id;
+                      if (tc.function?.name) toolCalls2[idx].function.name += tc.function.name;
+                      if (tc.function?.arguments) toolCalls2[idx].function.arguments += tc.function.arguments;
+                    }
+                  }
+                }
+              }
+              const resp2 = { role: 'assistant' };
+              if (streamed2) resp2.content = streamed2;
+              if (reasoning2) resp2.reasoning_content = reasoning2;
+              if (toolCalls2.length > 0) resp2.tool_calls = toolCalls2;
+              conversation[conversation.length - 1] = resp2;
+              responseMsg.tool_calls = toolCalls2;
+              if (!toolCalls2.length) {
+                setMessages([...conversation]);
+                requiresApiCall = false;
+              } else {
+                setMessages([...conversation]);
+              }
+            }
+          } else {
+            setMessages([...conversation]);
+          }
+        } catch (error) {
+          setMessages([...conversation, { role: 'system', content: `[Error] ${error.message}` }]);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      } else if (lowerQuery === '/exit') {
+        process.exit(0);
       } else {
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Unknown command. Type /help for available commands.` }]);
       }
@@ -257,11 +696,11 @@ const App = () => {
       while (requiresApiCall) {
         const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
 
-        const res = await fetch('https://opencode.ai/zen/v1/chat/completions', {
+        const res = await fetch(`${provider.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.OPENAI_API_KEY || ''}`,
+            'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
           },
           body: JSON.stringify({
             model: activeModel,
@@ -404,11 +843,11 @@ const App = () => {
 
   const generateTitle = async (sid, msgs) => {
     try {
-      const res = await fetch('https://opencode.ai/zen/v1/chat/completions', {
+      const res = await fetch(`${provider.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY || ''}`,
+          'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
         },
         body: JSON.stringify({
           model: activeModel,
@@ -449,12 +888,13 @@ const App = () => {
 
       if (msg.role === 'user') {
         const wrapped = wrapText(msg.content, userTextWidth);
-        wrapped.forEach((line, idx) => allLines.push({ type: 'user', content: line, isFirst: idx === 0 }));
+        allLines.push({ type: 'user', lines: wrapped });
       } else if (msg.role === 'system') {
         const wrapped = wrapText(msg.content, usableWidth);
         wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
       } else {
-        const wrapped = wrapText(msg.content || '', usableWidth - 2);
+        const cleanContent = stripMarkdown(msg.content || '');
+        const wrapped = wrapText(cleanContent, usableWidth - 2);
         wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
       }
       allLines.push({ type: 'spacer' });
@@ -485,21 +925,49 @@ const App = () => {
     );
   }
 
+  if (showSessionPicker) {
+    return (
+      <SessionPicker
+        sessions={pickerSessions}
+        onSelect={async (session) => {
+          const full = await loadSession(session.id);
+          if (full) {
+            setMessages(full.messages);
+            setSessionId(full.id);
+            if (full.model) { setActiveModel(full.model); saveModel(full.model); }
+            setMessages(prev => [...prev, { role: 'system', content: `[System] Resumed: ${full.title || full.id}` }]);
+          }
+          setShowSessionPicker(false);
+        }}
+        onDelete={async (id) => {
+          await deleteSession(id);
+          if (sessionId === id) setSessionId(null);
+        }}
+        onFav={async (id, fav) => {
+          await setSessionFavorite(id, fav);
+        }}
+        onClose={() => setShowSessionPicker(false)}
+        termWidth={termWidth}
+        termHeight={termHeight}
+      />
+    );
+  }
+
   if (showAgentDetail) {
     const agent = showAgentDetail;
     const age = Math.round((Date.now() - agent.createdAt) / 1000);
-    const borderColor = agent.status === 'running' ? '#8b5cf6' : agent.status === 'completed' ? '#22c55e' : '#ef4444';
+    const borderColor = agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#22c55e' : '#ef4444';
     return (
       <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
         <Box borderStyle="single" borderColor={borderColor} flexDirection="column" paddingX={2} paddingY={1} width={Math.min(termWidth - 4, 90)}>
           <Text bold color="white">Agent {agent.id}</Text>
-          <Text color="#a3a3a3">Status: <Text bold color={agent.status === 'running' ? '#8b5cf6' : agent.status === 'completed' ? '#22c55e' : '#ef4444'}>{agent.status}</Text></Text>
+          <Text color="#a3a3a3">Status: <Text bold color={agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#22c55e' : '#ef4444'}>{agent.status}</Text></Text>
           <Text color="#a3a3a3">Goal: {chalk.white(agent.goal)}</Text>
           <Text color="#a3a3a3">Steps: {agent.iterations}  |  Time: {age}s</Text>
-          {agent.lastActionDetail && <Text color="#a3a3a3">Last: {chalk.hex('#8b5cf6')(agent.lastActionDetail)}</Text>}
+          {agent.lastActionDetail && <Text color="#a3a3a3">Last: {chalk.hex('#D77757')(agent.lastActionDetail)}</Text>}
           {agent.log.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
-              <Text bold color="#8b5cf6">Activity Log:</Text>
+              <Text bold color="#D77757">Activity Log:</Text>
               {agent.log.slice(-15).map((entry, i) => (
                 <Text key={i} color="#737373">  {entry}</Text>
               ))}
@@ -527,30 +995,33 @@ const App = () => {
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
-      <Box justifyContent="center">
-        <Box borderStyle="single" borderColor="#c2410c" paddingX={4} paddingY={1} alignItems="center">
-          <AnimatedLogo />
-          <Box flexDirection="column">
-            <Text bold color="white">Mr. Vibe v1.0.1</Text>
-            <Box><Text color="#a3a3a3">Active: </Text><Text bold color="#FB923C">{activeModel}</Text></Box>
-            <Text color="#a3a3a3">{availableModels.length || '...'} models • {toolsDefinition.length} AI Tools Active</Text>
-            <Text>{"\n"}{displayDir}{"\n"}</Text>
-            <Text color="#a3a3a3"><Text color="#fb923c">Ctrl+M</Text> or <Text color="#fb923c">/help</Text> for commands</Text>
-          </Box>
+      <Box alignItems="center">
+        <AnimatedLogo />
+        <Box flexDirection="column">
+          <Text bold color="white">Vibe Code v1.0.1</Text>
+          <Box><Text color="#a3a3a3">Active: </Text><Text bold color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text></Box>
+          <Text color="#a3a3a3">{availableModels.length || '...'} models • {toolsDefinition.length} AI Tools Active</Text>
+          <Text color="#a3a3a3"><Text color="#D77757">Ctrl+M</Text> or <Text color="#D77757">/help</Text> for commands</Text>
         </Box>
       </Box>
 
       <Box flexDirection="column" flexGrow={1} marginY={1} overflow="hidden">
         {visibleLines.map((line, i) => {
           if (line.type === 'user') {
-            const visibleLen = line.content.length;
-            const padLen = Math.max(0, termWidth - visibleLen);
             return (
-              <Text key={i}>{chalk.bgHex('#222222')(chalk.white(line.content) + ' '.repeat(padLen))}</Text>
+              <Box key={i} flexDirection="column" width="100%">
+                {line.lines.map((text, j) => {
+                  const padLen = Math.max(0, termWidth - 4 - text.length);
+                  return (
+                    <Text key={j}>{chalk.bgHex('#222222')(chalk.white(text) + ' '.repeat(padLen))}</Text>
+                  );
+                })}
+              </Box>
             );
           } else if (line.type === 'system') {
             return <Text key={i} color="#facc15">{line.content}</Text>;
           } else if (line.type === 'assistant') {
+            if (!line.content) return null;
             return <Text key={i} bold color="white">{line.isFirst ? '• ' : '  '}{line.content}</Text>;
           } else if (line.type === 'tool_status') {
             const icon = chalk.hex(line.color)(line.icon);
@@ -564,7 +1035,7 @@ const App = () => {
               if (isDone) {
                 return <Text key={i}>{'  '}{icon}{' '}{chalk.strikethrough.gray(goalText)}</Text>;
               }
-              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#8b5cf6')(' [running]') : '') : '';
+              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#D77757')(' [running]') : '') : '';
               return <Text key={i}>{'  '}{icon}{' '}{chalk.white(goalText)}{statusLabel}</Text>;
             }
             return <Text key={i}>{'  '}{icon}{' '}{chalk.bold.white(line.content)}{'  '}{detail}</Text>;
@@ -576,11 +1047,27 @@ const App = () => {
         })}
       </Box>
 
-      <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} />
+      {showDropdown && (
+        <CommandDropdown
+          input={input}
+          selectedIndex={dropdownIndex}
+          onSelect={(cmd) => { setInput(cmd + ' '); setDropdownIndex(0); }}
+          models={dropdownModels}
+          sessions={dropdownSessions}
+          files={dropdownFiles}
+        />
+      )}
+      <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
+        if (!input.includes('@') || fileList.length === 0) return null;
+        const lastAt = input.lastIndexOf('@');
+        const query = input.slice(lastAt + 1).toLowerCase();
+        const filtered = fileList.filter(f => f.toLowerCase().includes(query));
+        return filtered[dropdownIndex] || filtered[0] || null;
+      })()} />
 
       <Box justifyContent="space-between" marginTop={1}>
         <Text bold color="white">{displayDir}</Text>
-        <Text color="#a3a3a3">Model: <Text color="#FB923C">{activeModel}</Text>  •  Tools Loaded: {toolsDefinition.length}</Text>
+        <Text color="#a3a3a3">Model: <Text color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text>  •  Tools Loaded: {toolsDefinition.length}</Text>
       </Box>
     </Box>
   );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { LOGO_ROWS } from '../constants.js';
 
 export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidth, termHeight }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,10 +62,14 @@ export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidt
   const visibleModels = filteredModels.slice(scrollOffset, scrollOffset + VISIBLE_COUNT);
 
   return (
-    <Box flexDirection="column" width={termWidth} height={termHeight} paddingTop={Math.max(2, paddingTop)} alignItems="center">
-      <Box flexDirection="column" width={overlayWidth} borderStyle="double" borderColor="#FB923C" paddingX={2} paddingY={1}>
+    <Box flexDirection="column" width={termWidth} height={termHeight} paddingTop={Math.max(1, paddingTop - 3)} alignItems="center">
+      {LOGO_ROWS.map((row, i) => (
+        <Text key={i} color="#D77757">{row}</Text>
+      ))}
+      <Text bold color="white" marginBottom={1}>Vibe Code</Text>
+      <Box flexDirection="column" width={overlayWidth} borderStyle="double" borderColor="#D77757" paddingX={2} paddingY={1}>
         <Box justifyContent="space-between" marginBottom={1}>
-          <Text bold color="#FB923C">Select Model</Text>
+          <Text bold color="#D77757">Select Model</Text>
           <Text color="#737373">ESC: cancel • ENTER: confirm</Text>
         </Box>
         <Box flexDirection="column" marginBottom={1}>
@@ -91,7 +96,7 @@ export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidt
               const isActive = model === activeModel;
               return (
                 <Box key={model} paddingX={1}>
-                  <Text bold={isSelected} color={isSelected ? '#FB923C' : isActive ? '#0ea5e9' : '#d4d4d4'}>
+                  <Text bold={isSelected} color={isSelected ? '#D77757' : isActive ? '#0ea5e9' : '#d4d4d4'}>
                     {isSelected ? '> ' : '  '}
                     {model}
                     {isActive && <Text color="#22c55e">  [active]</Text>}

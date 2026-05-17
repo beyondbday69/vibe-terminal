@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import path from 'node:path';
-import { formatDiffView } from './diffViewer.js';
+import { getPatchFromContents, renderHunk } from './structuredDiff.js';
 
 const CONTENT_INDENT = 2;
 const MAX_LINE_WIDTH_RATIO = 0.85;
@@ -56,9 +56,29 @@ function formatFileCreated(result, termWidth) {
     detail: chalk.hex('#737373')(`${relPath}  ${result.lineCount} lines • ${result.bytes} bytes`),
   });
 
-  // Use diff viewer - pass oldContent if available (for overwrites), null for new files
-  const diffLines = formatDiffView(result.path, result.content, result.oldContent ?? null, termWidth);
-  lines.push(...diffLines);
+  // Use structured diff renderer
+  const oldContent = result.oldContent ?? '';
+  const hunks = getPatchFromContents(result.path, oldContent, result.content);
+  if (hunks.length > 0) {
+    hunks.forEach(hunk => {
+      const diffLines = renderHunk(hunk, Math.min(termWidth - 2, 90));
+      diffLines.forEach(dl => lines.push({ type: 'tool_content', content: indent(dl) }));
+    });
+  } else {
+    // New file - show content in a box
+    const contentLines = result.content.split('\n');
+    const boxW = Math.min(Math.floor(termWidth * 0.85), 80);
+    const innerW = boxW - 2;
+    const lineNumWidth = String(contentLines.length).length;
+    const codeW = innerW - lineNumWidth - 3;
+    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u250c' + '\u2500'.repeat(innerW) + '\u2510')) });
+    contentLines.forEach((line, i) => {
+      const num = chalk.hex('#525252')(String(i + 1).padStart(lineNumWidth));
+      const code = chalk.white(truncateLine(line, codeW).padEnd(codeW));
+      lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u2502 ') + num + ' ' + code + chalk.hex('#525252')(' \u2502')) });
+    });
+    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u2514' + '\u2500'.repeat(innerW) + '\u2518')) });
+  }
 
   return lines;
 }
@@ -114,11 +134,13 @@ function formatFileEdited(result, termWidth) {
   const removedStr = chalk.hex('#EF4444')(`-${result.totalRemoved}`);
   lines.push({ type: 'tool_content', content: indent(`${addedStr} added  ${removedStr} removed`) });
 
-  // Auto-show diff based on terminal width
+  // Use structured diff renderer
   if (result.oldContent !== undefined && result.newContent !== undefined) {
-    // Use diff viewer with actual old and new content
-    const diffLines = formatDiffView(result.path, result.newContent, result.oldContent, termWidth);
-    lines.push(...diffLines);
+    const hunks = getPatchFromContents(result.path, result.oldContent, result.newContent);
+    hunks.forEach(hunk => {
+      const diffLines = renderHunk(hunk, Math.min(termWidth - 2, 90));
+      diffLines.forEach(dl => lines.push({ type: 'tool_content', content: indent(dl) }));
+    });
   } else {
     // Fallback to block-level diff if full content not available
     result.blocks.forEach((block) => {
@@ -178,7 +200,7 @@ function formatAgentSpawned(result, termWidth) {
   lines.push({
     type: 'tool_status',
     icon: '>',
-    color: '#8b5cf6',
+    color: '#D77757',
     content: 'agent_spawn',
     detail: chalk.hex('#737373')(`${result.id}`),
     agentId: result.id,
