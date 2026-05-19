@@ -35,6 +35,8 @@ function stripMarkdown(text) {
 }
 import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
 import { listFiles } from './utils/fileList.js';
+import { loadEnv, saveEnv } from './utils/env.js';
+import { createCheckpoint, listCheckpoints, rewindTo, forkCheckpoint, getCheckpoint } from './utils/rewind.js';
 
 // Components
 import { AnimatedLogo } from './components/AnimatedLogo.jsx';
@@ -53,7 +55,7 @@ const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_PROVIDER = {
   name: 'opencode',
-  baseUrl: '${provider.baseUrl}',
+  baseUrl: 'https://opencode.ai/zen/v1',
   apiKey: '',
 };
 
@@ -81,19 +83,35 @@ const nextToolId = () => `tool_${++toolIdCounter}`;
 const App = () => {
   const { columns: termWidth, rows: termHeight } = useTerminalSize();
 
-  // Ensure stdin is in raw mode for arrow key capture
+  // Ensure stdin is in raw mode for arrow key capture and strip mouse events
   useEffect(() => {
     if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
       process.stdin.setRawMode(true);
     }
+    // Disable mouse tracking
+    process.stdout.write('\x1b[?1000l');
+    process.stdout.write('\x1b[?1002l');
+    process.stdout.write('\x1b[?1006l');
+    process.stdout.write('\x1b[?1015l');
+    process.stdout.write('\x1b[?1003l');
   }, []);
 
-  const [input, setInput] = useState('');
+  const [rawInput, setRawInput] = useState('');
+  const MOUSE_SEQ = /\x1b\[<\d+;\d+;\d+[Mm]/g;
+  const input = rawInput.replace(MOUSE_SEQ, '');
+  const setInput = useCallback((val) => {
+    if (typeof val === 'function') {
+      setRawInput(prev => val(prev).replace(MOUSE_SEQ, ''));
+    } else {
+      setRawInput(String(val).replace(MOUSE_SEQ, ''));
+    }
+  }, []);
   const [availableModels, setAvailableModels] = useState([]);
   const [activeModel, setActiveModel] = useState('gpt-5.5');
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const abortRef = React.useRef(null);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [chatScroll, setChatScroll] = useState(0);
   const [showAgentDetail, setShowAgentDetail] = useState(null);
@@ -103,6 +121,7 @@ const App = () => {
   const [dropdownIndex, setDropdownIndex] = useState(0);
   const [pendingDropdownAction, setPendingDropdownAction] = useState(null);
   const [fileList, setFileList] = useState([]);
+  const [checkpointList, setCheckpointList] = useState([]);
 
   // Load files when @ is typed
   useEffect(() => {
@@ -110,6 +129,13 @@ const App = () => {
       listFiles().then(f => setFileList(f)).catch(() => {});
     }
   }, [input.includes('@')]);
+
+  // Load checkpoints when /rewind or /branch is typed
+  useEffect(() => {
+    if ((input.startsWith('/rewind') || input.startsWith('/branch')) && sessionId) {
+      listCheckpoints(sessionId).then(cps => setCheckpointList(cps)).catch(() => {});
+    }
+  }, [input.startsWith('/rewind'), input.startsWith('/branch'), sessionId]);
   const sessionIdRef = React.useRef(sessionId);
   sessionIdRef.current = sessionId;
 
@@ -135,7 +161,7 @@ const App = () => {
     })();
   }, [pendingDropdownAction]);
 
-  const isSubDropdown = (input.startsWith('/model ') || input.startsWith('/resume ') || input.startsWith('/delete '));
+  const isSubDropdown = (input.startsWith('/model ') || input.startsWith('/resume ') || input.startsWith('/delete ') || input.startsWith('/rewind ') || input.startsWith('/branch '));
   const hasAtMention = input.includes('@');
   const showDropdown = (input.startsWith('/') && input.length > 0) || hasAtMention;
   const filteredCommands = isSubDropdown || hasAtMention ? [] : COMMANDS.filter(c => c.cmd.startsWith(input.toLowerCase()));
@@ -154,9 +180,7 @@ const App = () => {
   const homeDir = os.homedir();
   const displayDir = cwd.startsWith(homeDir) ? cwd.replace(homeDir, '~') : cwd;
 
-  useEffect(() => {
-    setChatScroll(0);
-  }, [messages.length, isLoading]);
+  // No auto-scroll — user controls position with arrow keys
 
   // Handle paste from stdin (bracketed paste mode)
   useEffect(() => {
@@ -218,21 +242,32 @@ const App = () => {
   useEffect(() => {
     (async () => {
       const config = await loadConfig();
+      const env = await loadEnv();
+
       // Load saved provider
       if (config.provider) {
         setProvider(config.provider);
         setBaseUrl(config.provider.baseUrl);
         if (config.provider.apiKey) {
-          process.env.OPENAI_API_KEY = config.provider.apiKey;
           setApiKey(config.provider.apiKey);
         }
-      } else if (config.apiKey) {
-        // Legacy: single api key saved
-        process.env.OPENAI_API_KEY = config.apiKey;
-        setApiKey(config.apiKey);
-      } else {
-        setApiKey(process.env.OPENAI_API_KEY || '');
       }
+
+      // Load API key from .env (highest priority after provider)
+      const envKey = env.OPENAI_API_KEY || env.API_KEY || '';
+      const providerKey = config.provider?.apiKey || '';
+      const finalKey = providerKey || envKey || process.env.OPENAI_API_KEY || '';
+      if (finalKey) {
+        setApiKey(finalKey);
+      }
+
+      // Load base URL from .env
+      if (env.BASE_URL) {
+        const p = { ...config.provider || DEFAULT_PROVIDER, baseUrl: env.BASE_URL };
+        setProvider(p);
+        setBaseUrl(env.BASE_URL);
+      }
+
       if (config.activeModel) setActiveModel(config.activeModel);
     })();
   }, []);
@@ -244,9 +279,10 @@ const App = () => {
   // Fetch models when provider changes
   useEffect(() => {
     const fetchModels = async () => {
+      const modelKey = provider.apiKey || process.env.OPENAI_API_KEY || '';
       try {
         const res = await fetch(`${provider.baseUrl}/models`, {
-          headers: provider.apiKey ? { 'Authorization': `Bearer ${provider.apiKey}` } : {},
+          headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
         });
         const json = await res.json();
         setAvailableModels(json.data.map(m => m.id));
@@ -265,6 +301,20 @@ const App = () => {
       return;
     }
     if (showModelSelector) return;
+
+    // ESC to interrupt loading
+    if (key.escape && isLoading) {
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      setIsLoading(false);
+      return;
+    }
+    if (key.escape && input) {
+      setInput('');
+      return;
+    }
 
     // Shortcuts
     if (key.ctrl && inputChar === 'm') { setShowModelSelector(true); return; }
@@ -302,7 +352,7 @@ const App = () => {
       }
     }
 
-    // Sub-dropdown navigation (models, sessions)
+    // Sub-dropdown navigation (models, sessions, checkpoints)
     if (isSubDropdown && showDropdown) {
       let items = [];
       if (input.startsWith('/model ')) {
@@ -311,6 +361,8 @@ const App = () => {
       } else if (input.startsWith('/resume ') || input.startsWith('/delete ')) {
         const query = (input.split(' ')[1] || '').toLowerCase();
         items = pickerSessions.filter(s => (s.title || s.preview || s.id || '').toLowerCase().includes(query));
+      } else if (input.startsWith('/rewind ') || input.startsWith('/branch ')) {
+        items = checkpointList;
       }
       if (items.length > 0) {
         if (key.upArrow) { setDropdownIndex(prev => Math.max(0, prev - 1)); return; }
@@ -323,6 +375,12 @@ const App = () => {
               saveModel(selected);
               setMessages(prev => [...prev, { role: 'system', content: `Model switched to: ${selected}` }]);
               setInput('');
+            } else if (input.startsWith('/rewind ')) {
+              handleSubmit(`/rewind ${selected.index}`);
+              return;
+            } else if (input.startsWith('/branch ')) {
+              handleSubmit(`/branch ${selected.index}`);
+              return;
             } else {
               setPendingDropdownAction({ type: input.startsWith('/resume ') ? 'resume' : 'delete', session: selected, currentSessionId: sessionId });
               setInput('');
@@ -386,7 +444,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -400,20 +458,14 @@ const App = () => {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Model switched to: ${newModel}` }]);
         }
       } else if (lowerQuery === '/apikey') {
-        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /apikey <your-api-key>\nThe key is saved to ~/.vibe-code/config.json' }]);
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /apikey <your-api-key>\nThe key is saved to ~/.vibe-code/.env' }]);
       } else if (lowerQuery.startsWith('/apikey ')) {
         const newKey = trimmedQuery.slice(8).trim();
         if (newKey) {
           try {
-            const configPath = path.join(os.homedir(), '.vibe-code', 'config.json');
-            await fs.mkdir(path.dirname(configPath), { recursive: true });
-            let config = {};
-            try { config = JSON.parse(await fs.readFile(configPath, 'utf-8')); } catch {}
-            config.apiKey = newKey;
-            await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
-            process.env.OPENAI_API_KEY = newKey;
+            await saveEnv('OPENAI_API_KEY', newKey);
             setApiKey(newKey);
-            setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: '[System] API key saved successfully.' }]);
+            setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: '[System] API key saved to ~/.vibe-code/.env' }]);
           } catch (err) {
             setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: `[Error] Failed to save API key: ${err.message}` }]);
           }
@@ -440,6 +492,7 @@ const App = () => {
         } else if (providerName === 'nvidia') {
           const key = parts[2] || '';
           newProvider = { name: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: key };
+          if (key) await saveEnv('NVIDIA_API_KEY', key);
         } else if (providerName === 'custom') {
           const url = parts[2] || '';
           const key = parts[3] || '';
@@ -449,6 +502,8 @@ const App = () => {
             return;
           }
           newProvider = { name: 'custom', baseUrl: url, apiKey: key };
+          if (key) await saveEnv('CUSTOM_API_KEY', key);
+          await saveEnv('CUSTOM_BASE_URL', url);
         } else {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Unknown provider. Use: opencode, nvidia, custom' }]);
           setInput('');
@@ -457,14 +512,16 @@ const App = () => {
         setProvider(newProvider);
         setBaseUrl(newProvider.baseUrl);
         if (newProvider.apiKey) {
-          process.env.OPENAI_API_KEY = newProvider.apiKey;
           setApiKey(newProvider.apiKey);
+          await saveEnv('OPENAI_API_KEY', newProvider.apiKey);
         }
+        await saveEnv('BASE_URL', newProvider.baseUrl);
         await saveConfig({ provider: newProvider });
         // Fetch models from new provider
         try {
+          const modelKey = newProvider.apiKey || process.env.OPENAI_API_KEY || '';
           const res = await fetch(`${newProvider.baseUrl}/models`, {
-            headers: newProvider.apiKey ? { 'Authorization': `Bearer ${newProvider.apiKey}` } : {},
+            headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
           });
           const json = await res.json();
           setAvailableModels(json.data.map(m => m.id));
@@ -475,6 +532,59 @@ const App = () => {
       } else if (lowerQuery === '/clear') {
         setMessages([]);
         setSessionId(null);
+        setChatScroll(0);
+        // Clear entire terminal including scrollback
+        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+      } else if (lowerQuery === '/rewind') {
+        if (!sessionId) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No active session to rewind. Start a conversation first.' }]);
+        } else {
+          const checkpoints = await listCheckpoints(sessionId);
+          if (checkpoints.length === 0) {
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No checkpoints found.' }]);
+          } else {
+            const lines = ['[Rewind] Checkpoints:\n'];
+            checkpoints.forEach((cp, i) => {
+              const date = new Date(cp.createdAt).toLocaleTimeString();
+              const marker = i === checkpoints.length - 1 ? ' (current)' : '';
+              lines.push(`  ${i}: ${cp.label}  ${cp.messageCount} msgs  ${date}${marker}`);
+            });
+            lines.push('\n  /rewind <number>  - Go back to checkpoint');
+            lines.push('  /branch <number>  - Fork from checkpoint');
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
+          }
+        }
+      } else if (lowerQuery.startsWith('/rewind ')) {
+        const cpIndex = parseInt(trimmedQuery.split(' ')[1]);
+        if (isNaN(cpIndex)) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /rewind <number>' }]);
+        } else {
+          const checkpoint = await rewindTo(sessionId, cpIndex);
+          if (!checkpoint) {
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Checkpoint ${cpIndex} not found.` }]);
+          } else {
+            setMessages([...checkpoint.messages, { role: 'system', content: `[Rewound to checkpoint ${cpIndex}: "${checkpoint.label}"]` }]);
+            setChatScroll(0);
+          }
+        }
+        setInput('');
+        return;
+      } else if (lowerQuery.startsWith('/branch ')) {
+        const cpIndex = parseInt(trimmedQuery.split(' ')[1]);
+        if (isNaN(cpIndex)) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /branch <number>' }]);
+        } else {
+          const result = await forkCheckpoint(sessionId, cpIndex, `branch_from_${cpIndex}`);
+          if (!result) {
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Checkpoint ${cpIndex} not found.` }]);
+          } else {
+            setSessionId(result.forkId);
+            setMessages([...result.checkpoint.messages, { role: 'system', content: `[Branched from checkpoint ${cpIndex} as session ${result.forkId}]` }]);
+            setChatScroll(0);
+          }
+        }
+        setInput('');
+        return;
       } else if (lowerQuery === '/resume' || lowerQuery.startsWith('/resume ')) {
         const sessions = await listSessions();
         if (sessions.length === 0) {
@@ -529,7 +639,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
+              ...(provider.apiKey || process.env.OPENAI_API_KEY ? { 'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY}` } : {}),
             },
             body: JSON.stringify({
               model: activeModel,
@@ -612,7 +722,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
+                  ...(provider.apiKey || process.env.OPENAI_API_KEY ? { 'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY}` } : {}),
                 },
                 body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: toolsDefinition, stream: true }),
               });
@@ -690,17 +800,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     setInput('');
     setIsLoading(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
+
     try {
       let requiresApiCall = true;
 
-      while (requiresApiCall) {
-        const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
+      while (requiresApiCall && !controller.signal.aborted) {
+        const apiMessages = [systemPrompt, ...conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call')];
 
         const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+          signal: controller.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY || ''}`,
+            ...(provider.apiKey || process.env.OPENAI_API_KEY ? { 'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY}` } : {}),
           },
           body: JSON.stringify({
             model: activeModel,
@@ -725,7 +841,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         conversation = [...conversation, { role: 'assistant', content: '' }];
         setMessages([...conversation]);
 
-        while (true) {
+        while (!controller.signal.aborted) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -830,9 +946,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         }
       }
     } catch (error) {
-      setMessages([...conversation, { role: 'system', content: `[Error] ${error.message}` }]);
+      if (error.name === 'AbortError') {
+        // User pressed ESC to interrupt
+        setMessages([...conversation, { role: 'system', content: '[Interrupted]' }]);
+      } else {
+        setMessages([...conversation, { role: 'system', content: `[Error] ${error.message}` }]);
+      }
     } finally {
+      abortRef.current = null;
       setIsLoading(false);
+    }
+
+    // Auto-create checkpoint after AI response
+    if (sessionId && conversation.length >= 2) {
+      const userMsgs = conversation.filter(m => m.role === 'user');
+      const label = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1].content.slice(0, 40) : 'checkpoint';
+      createCheckpoint(sessionId, conversation, label).catch(() => {});
     }
 
     // Generate AI title for new sessions
@@ -902,14 +1031,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
     if (allLines.length > 0 && allLines[allLines.length - 1].type === 'spacer') allLines.pop();
 
-    const RESERVED_ROWS = 19;
-    const availableHeight = Math.max(0, termHeight - RESERVED_ROWS);
+    // Fixed height chat area with user-controlled scroll
+    const headerRows = 8;
+    const inputRows = 4;
+    const footerRows = 2;
+    const availableHeight = Math.max(5, termHeight - headerRows - inputRows - footerRows);
     const maxScroll = Math.max(0, allLines.length - availableHeight);
     const curScroll = Math.max(0, Math.min(chatScroll, maxScroll));
     const startIndex = Math.max(0, allLines.length - availableHeight - curScroll);
-    const lines = availableHeight > 0 ? allLines.slice(startIndex, allLines.length - curScroll) : [];
+    const lines = allLines.slice(startIndex, startIndex + availableHeight);
 
-    return { visibleLines: lines, actualScroll: curScroll };
+    return { visibleLines: lines, actualScroll: curScroll, maxScroll };
   }, [messages, termWidth, termHeight, chatScroll]);
 
   if (showModelSelector) {
@@ -994,7 +1126,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   }
 
   return (
-    <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
+    <Box flexDirection="column" width={termWidth} paddingX={2} paddingY={1}>
       <Box alignItems="center">
         <AnimatedLogo />
         <Box flexDirection="column">
@@ -1055,6 +1187,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           models={dropdownModels}
           sessions={dropdownSessions}
           files={dropdownFiles}
+          checkpoints={checkpointList}
         />
       )}
       <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {

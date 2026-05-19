@@ -6,7 +6,8 @@
       "Bash(git add:*)",
       "Bash(git clone:*)",
       "Bash(find /data/data/com.termux/files/home/vibe-terminal/openclaude/src -name *diff* -o -name *Diff*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(TMPDIR=/data/data/com.termux/files/home/tmp find src -type f -name \"*.js\" -o -name \"*.jsx\")"
     ]
   }
 }

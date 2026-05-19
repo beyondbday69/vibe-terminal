@@ -87,33 +87,27 @@ function formatFileRead(result, termWidth) {
   const relPath = shortenPath(result.path);
   const lines = [];
 
+  // Show badge with filename in accent color + preview of 5 lines
+  const contentLines = result.content.split('\n');
+  const preview = contentLines.slice(0, 5);
+  const hasMore = contentLines.length > 5;
+
   lines.push({
     type: 'tool_status',
     icon: '✓',
     color: '#22c55e',
     content: `read_file`,
-    detail: chalk.hex('#737373')(`${relPath}  ${result.lineCount} lines${result.truncated ? ' (truncated)' : ''}`),
+    detail: chalk.hex('#D77757')(`[${relPath}]`) + chalk.hex('#737373')(`  ${result.lineCount} lines`),
   });
 
-  // Show content directly
-  const contentLines = result.content.split('\n');
-  const boxW = Math.min(Math.floor(termWidth * MAX_LINE_WIDTH_RATIO), 80);
-  const innerW = boxW - 2; // space between │ and │
-  const lineNumWidth = String(contentLines.length).length;
-  const codeW = innerW - lineNumWidth - 3; // 3 = space + num + space
-
-  const topBorder = chalk.hex('#525252')('\u250c' + '\u2500'.repeat(innerW) + '\u2510');
-  const botBorder = chalk.hex('#525252')('\u2514' + '\u2500'.repeat(innerW) + '\u2518');
-
-  lines.push({ type: 'tool_content', content: indent(topBorder) });
-
-  contentLines.forEach((line, i) => {
-    const num = chalk.hex('#525252')(String(i + 1).padStart(lineNumWidth));
-    const code = chalk.white(truncateLine(line, codeW).padEnd(codeW));
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u2502 ') + num + ' ' + code + chalk.hex('#525252')(' \u2502')) });
+  preview.forEach((line, i) => {
+    const num = chalk.hex('#525252')(String(i + 1).padStart(3));
+    lines.push({ type: 'tool_content', content: indent(`${num}  ${chalk.white(truncateLine(line, termWidth - 10))}`) });
   });
 
-  lines.push({ type: 'tool_content', content: indent(botBorder) });
+  if (hasMore) {
+    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')(`  ... ${contentLines.length - 5} more lines`)) });
+  }
 
   return lines;
 }
