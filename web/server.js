@@ -385,6 +385,14 @@ app.get('/api/agents', async (req, res) => {
   res.json(list);
 });
 
+app.get('/api/files', async (req, res) => {
+  const files = [];
+  await walkDir(process.cwd(), files, 500);
+  const cwd = process.cwd();
+  const rels = files.map(f => path.relative(cwd, f)).sort();
+  res.json(rels);
+});
+
 app.get('/api/config', async (req, res) => {
   const config = await loadConfig();
   const env = await loadEnv();

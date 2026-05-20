@@ -20,12 +20,175 @@ const TOOLS = [
   { type: 'function', function: { name: 'agent_stop', description: 'Stop a running agent.', parameters: { type: 'object', properties: { agent_id: { type: 'string', description: 'Agent ID to stop' } }, required: ['agent_id'] } } },
 ];
 
-const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit', '/agents'];
+const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit', '/agents', '/attach'];
 
 const AGENT_COLORS = [
   'red', 'green', 'yellow', 'blue', 'magenta',
   'orange', 'pink', 'teal', 'lavender',
 ];
+
+// ── File Picker ──────────────────────────────────────────────────────────────
+function FilePicker({ files, selected, onToggle, onAttach, onClose }) {
+  const [search, setSearch] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [currentDir, setCurrentDir] = useState('');
+  const inputRef = useRef(null);
+
+  // Build directory tree from flat file list
+  const { dirs, dirFiles } = useMemo(() => {
+    const dirSet = new Set();
+    const fileList = [];
+    for (const f of files) {
+      if (f.startsWith(currentDir ? currentDir + '/' : '')) {
+        const rest = currentDir ? f.slice(currentDir.length + 1) : f;
+        const slashIdx = rest.indexOf('/');
+        if (slashIdx !== -1) {
+          dirSet.add((currentDir ? currentDir + '/' : '') + rest.slice(0, slashIdx));
+        } else {
+          fileList.push(f);
+        }
+      }
+    }
+    return { dirs: [...dirSet].sort(), dirFiles: fileList };
+  }, [files, currentDir]);
+
+  const filtered = useMemo(() => {
+    if (!search) return [...dirs, ...dirFiles];
+    const q = search.toLowerCase();
+    return [...dirs, ...dirFiles].filter(f => {
+      const name = f.split('/').pop();
+      return name.toLowerCase().includes(q);
+    });
+  }, [dirs, dirFiles, search]);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const minCursor = currentDir && !search ? -1 : 0;
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') onClose();
+    if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(minCursor, c - 1)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(filtered.length - 1, c + 1)); }
+    if (e.key === 'Enter') {
+      if (cursor === -1) { goUp(); return; }
+      if (filtered[cursor]) {
+        if (dirs.includes(filtered[cursor])) { enterDir(filtered[cursor]); }
+        else { onToggle(filtered[cursor]); }
+      }
+    }
+  };
+
+  const goUp = () => {
+    if (!currentDir) return;
+    const parts = currentDir.split('/');
+    parts.pop();
+    const parent = parts.join('/');
+    setCurrentDir(parent);
+    setCursor(parent ? -1 : 0);
+    setSearch('');
+  };
+
+  const enterDir = (dir) => {
+    setCurrentDir(dir);
+    setCursor(-1);
+    setSearch('');
+  };
+
+  const ext = (f) => f.includes('.') ? f.split('.').pop() : '';
+
+  const icon = (f, isDir) => {
+    if (isDir) return '>';
+    const e = ext(f);
+    if (['js', 'jsx'].includes(e)) return 'JS';
+    if (['ts', 'tsx'].includes(e)) return 'TS';
+    if (e === 'py') return 'Py';
+    if (['html', 'htm'].includes(e)) return '<>';
+    if (['css', 'scss'].includes(e)) return '{}';
+    if (['json', 'yaml', 'yml', 'toml'].includes(e)) return '{}';
+    if (['md', 'txt'].includes(e)) return '#';
+    if (['sh', 'bash', 'zsh'].includes(e)) return '$';
+    return '  ';
+  };
+
+  const displayName = (path) => {
+    const name = path.split('/').pop();
+    return name;
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="overlay-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
+        <AnimatedLogo />
+        <div className="overlay-header">
+          <span className="title">Attach Files</span>
+          <span className="hint">ESC close | ENTER open/toggle</span>
+        </div>
+        <input
+          ref={inputRef}
+          className="overlay-search"
+          placeholder="Search in folder..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCursor(0); }}
+        />
+        <div className="overlay-list" style={{ maxHeight: 320 }}>
+          {currentDir && !search && (
+            <div
+              className={`overlay-item ${cursor === -1 ? 'selected' : ''}`}
+              onClick={goUp}
+              onMouseEnter={() => setCursor(-1)}
+            >
+              <div className="file-item">
+                <span className="file-icon file-icon-dir">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                  </svg>
+                </span>
+                <span className="file-name file-name-dir">..</span>
+              </div>
+            </div>
+          )}
+          {filtered.length === 0 && !currentDir && (
+            <div className="overlay-item" style={{ color: 'var(--text-muted)', cursor: 'default' }}>
+              No files found.
+            </div>
+          )}
+          {filtered.map((item, i) => {
+            const isDir = dirs.includes(item);
+            const isSelected = selected.has(item);
+            return (
+              <div
+                key={item}
+                className={`overlay-item ${i === cursor ? 'selected' : ''} ${isSelected ? 'file-attached' : ''}`}
+                onClick={() => isDir ? enterDir(item) : onToggle(item)}
+                onMouseEnter={() => setCursor(i)}
+              >
+                <div className="file-item">
+                  <span className={`file-icon ${isDir ? 'file-icon-dir' : ''}`}>
+                    {isDir ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                      </svg>
+                    ) : icon(item, false)}
+                  </span>
+                  <span className={`file-name ${isDir ? 'file-name-dir' : ''} ${isSelected ? 'file-name-selected' : ''}`}>
+                    {displayName(item)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="overlay-footer">
+          <span className="hint">{selected.size} selected</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="preset-btn active" onClick={onAttach}>Attach</button>
+            <button className="preset-btn" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Logo ─────────────────────────────────────────────────────────────────────
 import newLogo from '../assets/newlogo.png';
@@ -758,6 +921,10 @@ export default function App() {
   const [sessionId, setSessionId] = useState(null);
   const [showAgents, setShowAgents] = useState(false);
   const [agents, setAgents] = useState([]);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [codebaseFiles, setCodebaseFiles] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
+  const [attachedFiles, setAttachedFiles] = useState([]);
   const [dropdownItems, setDropdownItems] = useState([]);
   const [dropdownIndex, setDropdownIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -825,10 +992,56 @@ export default function App() {
     setDropdownIndex(0);
   }, [input, models]);
 
+  // ── File Attach ────────────────────────────────────────────────────────────
+  const loadCodebaseFiles = useCallback(async () => {
+    try {
+      const r = await fetch('/api/files');
+      const files = await r.json();
+      setCodebaseFiles(files);
+    } catch {}
+  }, []);
+
+  const onAttachFiles = useCallback(async () => {
+    const contents = [];
+    for (const filePath of selectedFiles) {
+      try {
+        const r = await fetch('/api/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'read_file', args: { file_path: filePath } }),
+        });
+        const result = await r.json();
+        if (result.type === 'file_read') {
+          contents.push({ path: filePath, content: result.content, lineCount: result.lineCount });
+        }
+      } catch {}
+    }
+    setAttachedFiles(contents);
+    setSelectedFiles(new Set());
+    setShowFilePicker(false);
+    inputRef.current?.focus();
+  }, [selectedFiles]);
+
+  const toggleFile = useCallback((file) => {
+    setSelectedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(file)) next.delete(file);
+      else next.add(file);
+      return next;
+    });
+  }, []);
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async (text) => {
     const trimmed = (text || input).trim();
     if (!trimmed || isLoading) return;
+
+    let prompt = trimmed;
+    if (attachedFiles.length > 0) {
+      const fileContext = attachedFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
+      prompt = `${trimmed}\n\nAttached files:\n${fileContext}`;
+      setAttachedFiles([]);
+    }
 
     // Handle slash commands
     if (trimmed.startsWith('/')) {
@@ -837,7 +1050,7 @@ export default function App() {
       return;
     }
 
-    const userMsg = { role: 'user', content: trimmed };
+    const userMsg = { role: 'user', content: prompt };
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
     setInput('');
@@ -985,7 +1198,7 @@ export default function App() {
 
     if (lower === '/help') {
       setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content:
-        `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open model selector\n  /model <id>   - Switch model\n  /apikey <key> - Set API key\n  /provider     - Provider settings\n  /clear        - Clear chat\n  /init         - Create CLAUDE.md\n  /resume       - Resume session\n  /save         - Save session\n  /agents       - Show agents\n  /exit         - (web: close tab)\n\nCtrl+M: model selector\nCtrl+A: agents panel` }]);
+        `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open model selector\n  /model <id>   - Switch model\n  /apikey <key> - Set API key\n  /provider     - Provider settings\n  /clear        - Clear chat\n  /init         - Create CLAUDE.md\n  /resume       - Resume session\n  /save         - Save session\n  /agents       - Show agents\n  /exit         - (web: close tab)\n\nCtrl+M: model selector\nCtrl+A: agents panel\nCtrl+F: attach files` }]);
     } else if (lower === '/model') {
       setShowModelSelector(true);
     } else if (lower.startsWith('/model ')) {
@@ -1052,14 +1265,17 @@ export default function App() {
     } else if (lower === '/agents') {
       onRefreshAgents();
       setShowAgents(true);
+    } else if (lower === '/attach') {
+      loadCodebaseFiles();
+      setShowFilePicker(true);
     } else {
       setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: `Unknown command: ${cmd}` }]);
     }
-  }, [messages, activeModel, provider, sessionId, onRefreshAgents]);
+  }, [messages, activeModel, provider, sessionId, onRefreshAgents, loadCodebaseFiles]);
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e) => {
-    if (showModelSelector || showProviderSelector || showResume || showAgents) return;
+    if (showModelSelector || showProviderSelector || showResume || showAgents || showFilePicker) return;
 
     if (e.key === 'Escape') {
       if (isLoading) { abortRef.current?.abort(); return; }
@@ -1068,6 +1284,7 @@ export default function App() {
     }
     if (e.ctrlKey && e.key === 'm') { e.preventDefault(); setShowModelSelector(true); return; }
     if (e.ctrlKey && e.key === 'a') { e.preventDefault(); onRefreshAgents(); setShowAgents(true); return; }
+    if (e.ctrlKey && e.key === 'f') { e.preventDefault(); loadCodebaseFiles(); setShowFilePicker(true); return; }
 
     if (showDropdown) {
       if (e.key === 'ArrowUp') { e.preventDefault(); setDropdownIndex(i => Math.max(0, i - 1)); return; }
@@ -1086,7 +1303,7 @@ export default function App() {
       e.preventDefault();
       handleSubmit();
     }
-  }, [showDropdown, dropdownItems, dropdownIndex, isLoading, showModelSelector, showProviderSelector, showResume, showAgents, handleSubmit, onRefreshAgents]);
+  }, [showDropdown, dropdownItems, dropdownIndex, isLoading, showModelSelector, showProviderSelector, showResume, showAgents, showFilePicker, handleSubmit, onRefreshAgents, loadCodebaseFiles]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1124,6 +1341,16 @@ export default function App() {
 
       {/* Input */}
       <div className="input-area">
+        {attachedFiles.length > 0 && (
+          <div className="attached-files">
+            {attachedFiles.map((f, i) => (
+              <span key={i} className="attached-chip">
+                {f.path.split('/').pop()}
+                <button className="attached-remove" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))}>x</button>
+              </span>
+            ))}
+          </div>
+        )}
         {showDropdown && (
           <CommandDropdown
             items={dropdownItems}
@@ -1145,6 +1372,23 @@ export default function App() {
             placeholder="Ask anything..."
             autoFocus
           />
+          <button
+            className="input-action-btn attach-btn"
+            title="Attach files"
+            onClick={() => { loadCodebaseFiles(); setShowFilePicker(true); }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <div className="input-divider" />
+          <button
+            className="input-action-btn agents-action-btn"
+            title="Agents"
+            onClick={() => { onRefreshAgents(); setShowAgents(true); }}
+          >
+            AGENTS
+          </button>
           {isLoading && (
             <button className="stop-btn" onClick={() => abortRef.current?.abort()} title="Stop">
               <svg width="12" height="12" viewBox="0 0 12 12"><rect width="12" height="12" rx="2" fill="currentColor"/></svg>
@@ -1214,6 +1458,17 @@ export default function App() {
           onClose={() => setShowAgents(false)}
         />
       )}
+
+      {/* File Picker */}
+      {showFilePicker && (
+        <FilePicker
+          files={codebaseFiles}
+          selected={selectedFiles}
+          onToggle={toggleFile}
+          onAttach={onAttachFiles}
+          onClose={() => { setShowFilePicker(false); inputRef.current?.focus(); }}
+        />
+      )}
     </div>
   );
 }
@@ -1223,7 +1478,7 @@ function getCommandDesc(cmd) {
     '/help': 'Show help', '/model': 'Select model', '/apikey': 'Set API key',
     '/provider': 'Switch provider', '/rewind': 'Rewind to checkpoint', '/branch': 'Fork from checkpoint',
     '/clear': 'Clear chat', '/init': 'Create CLAUDE.md', '/resume': 'Resume session',
-    '/delete': 'Delete session', '/exit': 'Exit app', '/agents': 'Show agents',
+    '/delete': 'Delete session', '/exit': 'Exit app', '/agents': 'Show agents', '/attach': 'Attach files',
   };
   return descs[cmd] || '';
 }

@@ -487,6 +487,142 @@ body {
   opacity: 1;
 }
 
+.input-action-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  gap: 5px;
+}
+
+.input-action-btn:hover {
+  border-color: var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+}
+
+.attach-btn:hover {
+  color: var(--green);
+  border-color: rgba(62, 207, 142, 0.3);
+  background: rgba(62, 207, 142, 0.1);
+}
+
+.agents-action-btn {
+  padding: 5px 9px;
+  font-weight: 600;
+}
+
+.agents-action-btn:hover {
+  color: var(--accent);
+  border-color: rgba(215, 119, 87, 0.35);
+  background: rgba(215, 119, 87, 0.15);
+}
+
+.input-divider {
+  width: 1px;
+  height: 18px;
+  background: #555555;
+  flex-shrink: 0;
+}
+
+.attached-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.attached-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.attached-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  font-family: inherit;
+}
+
+.attached-remove:hover {
+  color: var(--red);
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.file-icon {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: bold;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-icon svg {
+  color: var(--accent);
+}
+
+.file-name {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-name-selected {
+  color: var(--green) !important;
+  font-weight: bold;
+}
+
+.file-attached {
+  background: rgba(62, 207, 142, 0.06) !important;
+}
+
+.overlay-item.selected .file-name {
+  color: var(--text);
+}
+
+.overlay-item.selected .file-name-selected {
+  color: var(--green) !important;
+}
+
+.file-icon-dir {
+  color: var(--accent) !important;
+}
+
+.file-name-dir {
+  color: var(--accent) !important;
+  font-weight: bold;
+}
+
 .input-box input {
   flex: 1;
   background: transparent;
@@ -648,6 +784,7 @@ body {
 .overlay-item {
   padding: 4px 8px;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .overlay-item:hover,
