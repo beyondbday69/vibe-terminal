@@ -44,6 +44,7 @@ import { AnimatedInputBox } from './components/AnimatedInputBox.jsx';
 import { ModelSelector } from './components/ModelSelector.jsx';
 import { SessionPicker } from './components/SessionPicker.jsx';
 import { CommandDropdown, COMMANDS } from './components/CommandDropdown.jsx';
+import { ToolConfirmation } from './components/ToolConfirmation.jsx';
 
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
@@ -110,6 +111,8 @@ const App = () => {
   const [activeModel, setActiveModel] = useState('gpt-5.5');
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [messages, setMessages] = useState([]);
+  const [askBeforeEdits, setAskBeforeEdits] = useState(true);
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = React.useRef(null);
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -298,6 +301,16 @@ const App = () => {
   }, [provider.baseUrl, provider.apiKey]);
 
   useInput((inputChar, key) => {
+    if (pendingConfirmation) {
+      if (inputChar === 'y' || inputChar === 'Y' || key.return) {
+        pendingConfirmation.resolve({ approved: true });
+        setPendingConfirmation(null);
+      } else if (inputChar === 'n' || inputChar === 'N' || key.escape) {
+        pendingConfirmation.resolve({ approved: false });
+        setPendingConfirmation(null);
+      }
+      return;
+    }
     if (showAgentDetail) {
       if (key.escape || inputChar === 'q' || (key.ctrl && inputChar === 'o')) {
         setShowAgentDetail(null);
@@ -440,6 +453,21 @@ const App = () => {
     saveModel(model);
     setMessages(prev => [...prev, { role: 'system', content: `Model switched to: ${model}` }]);
   }, []);
+
+  const confirmAndExecuteTool = async (funcName, funcArgs, onUpdateStatus) => {
+    const isMutative = ['run_bash', 'write_file', 'edit_file'].includes(funcName);
+    if (isMutative && askBeforeEdits) {
+      onUpdateStatus('pending_confirmation');
+      const userChoice = await new Promise((resolve) => {
+        setPendingConfirmation({ name: funcName, args: funcArgs, resolve });
+      });
+      if (!userChoice.approved) {
+        return { type: 'error', message: 'User rejected tool execution.' };
+      }
+    }
+    onUpdateStatus('running');
+    return await executeToolCall(funcName, funcArgs);
+  };
 
   const handleSubmit = async (query) => {
     if (!query.trim() || isLoading || showModelSelector) return;
@@ -719,7 +747,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                 const toolId = `tool_${Date.now()}`;
                 conversation = [...conversation, { role: 'tool_call', toolId, name: funcName, args: funcArgs, status: 'running', result: null }];
                 setMessages([...conversation]);
-                const result = await executeToolCall(funcName, funcArgs);
+                const result = await confirmAndExecuteTool(funcName, funcArgs, (newStatus) => {
+                  conversation[conversation.length - 1] = {
+                    ...conversation[conversation.length - 1],
+                    status: newStatus,
+                  };
+                  setMessages([...conversation]);
+                });
                 conversation[conversation.length - 1] = { ...conversation[conversation.length - 1], status: 'completed', result };
                 setMessages([...conversation]);
                 const rawContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
@@ -794,6 +828,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           setIsLoading(false);
         }
         return;
+      } else if (lowerQuery === '/auto') {
+        setAskBeforeEdits(prev => {
+          const next = !prev;
+          setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Auto mode toggled. Now: ${next ? 'Ask before edits (interactive)' : 'Auto execute edits (autonomous)'}` }]);
+          return next;
+        });
       } else if (lowerQuery === '/exit') {
         process.exit(0);
       } else {
@@ -930,7 +970,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             setMessages([...conversation]);
 
             // Execute
-            const result = await executeToolCall(funcName, funcArgs);
+            const result = await confirmAndExecuteTool(funcName, funcArgs, (newStatus) => {
+              conversation[conversation.length - 1] = {
+                ...conversation[conversation.length - 1],
+                status: newStatus,
+              };
+              setMessages([...conversation]);
+            });
 
             // Update to completed state
             conversation[conversation.length - 1] = {
@@ -1013,12 +1059,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       if (msg.role === 'tool') return;
 
       if (msg.role === 'tool_call') {
-        const toolLines = formatToolResult(
-          msg.name,
-          msg.status === 'running' ? null : msg.result,
-          usableWidth
-        );
-        toolLines.forEach(line => allLines.push(line));
+        if (msg.status === 'pending_confirmation') {
+          allLines.push({
+            type: 'tool_status',
+            icon: '⚠️',
+            color: '#facc15',
+            content: `${msg.name} (pending confirmation...)`,
+          });
+        } else {
+          const toolLines = formatToolResult(
+            msg.name,
+            msg.status === 'running' ? null : msg.result,
+            usableWidth
+          );
+          toolLines.forEach(line => allLines.push(line));
+        }
         allLines.push({ type: 'spacer' });
         return;
       }
@@ -1198,17 +1253,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           checkpoints={checkpointList}
         />
       )}
-      <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
-        if (!input.includes('@') || fileList.length === 0) return null;
-        const lastAt = input.lastIndexOf('@');
-        const query = input.slice(lastAt + 1).toLowerCase();
-        const filtered = fileList.filter(f => f.toLowerCase().includes(query));
-        return filtered[dropdownIndex] || filtered[0] || null;
-      })()} />
+      {pendingConfirmation ? (
+        <ToolConfirmation
+          name={pendingConfirmation.name}
+          args={pendingConfirmation.args}
+          termWidth={termWidth}
+        />
+      ) : (
+        <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
+          if (!input.includes('@') || fileList.length === 0) return null;
+          const lastAt = input.lastIndexOf('@');
+          const query = input.slice(lastAt + 1).toLowerCase();
+          const filtered = fileList.filter(f => f.toLowerCase().includes(query));
+          return filtered[dropdownIndex] || filtered[0] || null;
+        })()} />
+      )}
 
       <Box justifyContent="space-between" marginTop={1}>
         <Text bold color="white">{displayDir}</Text>
-        <Text color="#a3a3a3">Model: <Text color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text>  •  Tools Loaded: {toolsDefinition.length}</Text>
+        <Box>
+          <Text color="#a3a3a3">Mode: </Text>
+          <Text bold color={askBeforeEdits ? '#facc15' : '#22c55e'}>{askBeforeEdits ? 'Interactive' : 'Auto-Execute'}</Text>
+          <Text color="#a3a3a3">  •  Model: </Text>
+          <Text color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text>
+          <Text color="#a3a3a3">  •  Tools: {toolsDefinition.length}</Text>
+        </Box>
       </Box>
     </Box>
   );
