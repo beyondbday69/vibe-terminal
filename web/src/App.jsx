@@ -1300,6 +1300,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [models, setModels] = useState([]);
+  const [rawEnvApiKey, setRawEnvApiKey] = useState('');
   const [activeModel, setActiveModel] = useState('kimi-k2.6');
   const [provider, setProvider] = useState({ name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN', modelsUrl: 'https://opencode.ai/zen/go/v1/models' });
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -1346,15 +1347,11 @@ export default function App() {
         const r = await fetch('/api/config');
         const { config, env, cwd, home } = await r.json();
         if (config.provider) setProvider(config.provider);
+        if (env && env.rawApiKey) setRawEnvApiKey(env.rawApiKey);
         if (config.activeModel) setActiveModel(config.activeModel);
         if (config.activeWorkspace) setCurrentCwd(config.activeWorkspace);
         else if (cwd) setCurrentCwd(cwd);
         if (home) setHomeDir(home);
-      } catch {}
-      try {
-        const r = await fetch('/api/models');
-        const { models: m } = await r.json();
-        setModels(m);
       } catch {}
     })();
   }, []);
@@ -1362,13 +1359,28 @@ export default function App() {
   // ── Refresh models when provider changes ───────────────────────────────────
   useEffect(() => {
     (async () => {
+      if (!provider || !provider.baseUrl) return;
       try {
-        const r = await fetch('/api/models');
-        const { models: m } = await r.json();
-        setModels(m);
-      } catch {}
+        const key = provider.apiKey || rawEnvApiKey || '';
+        const modelsUrl = provider.modelsUrl || `${provider.baseUrl}/models`;
+        const headers = {};
+        if (key) headers['Authorization'] = `Bearer ${key}`;
+        
+        const r = await fetch(modelsUrl, { headers });
+        if (!r.ok) {
+          throw new Error(`Failed to fetch models: ${r.statusText}`);
+        }
+        const json = await r.json();
+        if (json && json.data) {
+          setModels(json.data.map(m => m.id));
+        } else if (Array.isArray(json)) {
+          setModels(json.map(m => m.id || m));
+        }
+      } catch (e) {
+        console.error('Failed to load models directly:', e);
+      }
     })();
-  }, [provider]);
+  }, [provider, rawEnvApiKey]);
 
   // ── Refresh agents ─────────────────────────────────────────────────────────
   const onRefreshAgents = useCallback(async () => {
@@ -1472,13 +1484,22 @@ export default function App() {
       let requiresLoop = true;
 
       while (requiresLoop && !controller.signal.aborted) {
-        const apiMsgs = conversation.filter(m => m.role !== 'tool_call');
+        const apiMsgs = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
         const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code. When you have completed modifying the codebase, you MUST use the git_commit_and_push tool to commit and push your changes to the "agy" branch.' };
 
-        const res = await fetch('/api/chat', {
+        const key = provider.apiKey || rawEnvApiKey || '';
+        const headers = { 'Content-Type': 'application/json' };
+        if (key) headers['Authorization'] = `Bearer ${key}`;
+
+        const res = await fetch(`${provider.baseUrl}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: [systemPrompt, ...apiMsgs], model: activeModel, tools: TOOLS }),
+          headers,
+          body: JSON.stringify({
+            messages: [systemPrompt, ...apiMsgs],
+            model: activeModel,
+            tools: TOOLS,
+            stream: true
+          }),
           signal: controller.signal,
         });
 

@@ -455,7 +455,11 @@ app.get('/api/config', async (req, res) => {
   const env = await loadEnv();
   res.json({
     config,
-    env: { OPENAI_API_KEY: env.OPENAI_API_KEY ? '••••' + env.OPENAI_API_KEY.slice(-4) : '', BASE_URL: env.BASE_URL },
+    env: {
+      OPENAI_API_KEY: env.OPENAI_API_KEY ? '••••' + env.OPENAI_API_KEY.slice(-4) : '',
+      rawApiKey: env.OPENAI_API_KEY || '',
+      BASE_URL: env.BASE_URL
+    },
     cwd: process.cwd(),
     home: os.homedir(),
   });
