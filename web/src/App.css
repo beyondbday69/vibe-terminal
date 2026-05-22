@@ -757,6 +757,10 @@ body {
   color: var(--text);
 }
 
+.mode-toggle.active {
+  color: var(--accent);
+}
+
 .send-btn {
   background-color: var(--accent);
   color: #ffffff;

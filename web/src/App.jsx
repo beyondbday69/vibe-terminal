@@ -1129,8 +1129,111 @@ function CopyButton({ text }) {
   );
 }
 
+// ── Tool Confirmation ────────────────────────────────────────────────────────
+function ToolConfirmationBox({ name, args, onConfirm, onReject }) {
+  const isBash = name === 'run_bash';
+  const filepath = args.file_path || '';
+  const command = args.command || '';
+
+  return (
+    <div className="tool-confirmation-card" style={{
+      border: '1px dashed var(--yellow)',
+      borderRadius: '6px',
+      padding: '10px',
+      margin: '6px 0 6px 24px',
+      background: 'rgba(251, 191, 36, 0.05)'
+    }}>
+      <div className="tool-status">
+        <span className="icon" style={{ color: 'var(--yellow)' }}>⚠️</span>
+        <span className="name" style={{ color: 'var(--yellow)', fontWeight: 'bold' }}>Confirm Action: {name}</span>
+        {filepath && <span className="detail"> <span className="file-badge">[{shortenPath(filepath)}]</span></span>}
+      </div>
+
+      {isBash ? (
+        <div className="tool-content confirmation-preview" style={{
+          color: '#d4d4d4',
+          background: 'var(--bg-light)',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          margin: '6px 0 6px 0',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px',
+          border: '1px solid var(--border)'
+        }}>
+          {command}
+        </div>
+      ) : (
+        <div className="tool-content confirmation-preview" style={{
+          color: '#d4d4d4',
+          background: 'var(--bg-light)',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          margin: '6px 0 6px 0',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '12px',
+          maxHeight: '150px',
+          overflowY: 'auto',
+          border: '1px solid var(--border)'
+        }}>
+          {name === 'write_file' ? (
+            <div>
+              <div style={{ color: 'var(--text-dim)', marginBottom: '4px', fontSize: '11px', fontWeight: 'bold' }}>Content to write:</div>
+              {args.content ? args.content.split('\n').slice(0, 8).join('\n') + (args.content.split('\n').length > 8 ? '\n...' : '') : ''}
+            </div>
+          ) : (
+            <div>
+              <div style={{ color: 'var(--text-dim)', marginBottom: '4px', fontSize: '11px', fontWeight: 'bold' }}>Search/Replace blocks:</div>
+              {args.diff ? args.diff.split('\n').slice(0, 10).join('\n') + (args.diff.split('\n').length > 10 ? '\n...' : '') : ''}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="confirmation-actions" style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+        <button className="confirm-btn approve" onClick={onConfirm} style={{
+          backgroundColor: 'var(--green)',
+          color: '#1a1a1a',
+          fontWeight: 'bold',
+          border: 'none',
+          padding: '6px 14px',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          transition: 'opacity 0.15s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.9'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          ✓ Approve
+        </button>
+        <button className="confirm-btn reject" onClick={onReject} style={{
+          backgroundColor: '#3a1a1a',
+          color: 'var(--red)',
+          border: '1px solid #5a2a2a',
+          padding: '6px 14px',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          transition: 'background-color 0.15s'
+        }}
+        onMouseEnter={(e) => e.target.style.backgroundColor = '#4e1f1f'}
+        onMouseLeave={(e) => e.target.style.backgroundColor = '#3a1a1a'}
+        >
+          ✗ Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Chat Message ─────────────────────────────────────────────────────────────
-function ChatMessage({ msg }) {
+function ChatMessage({ msg, onConfirm, onReject }) {
   if (msg.role === 'user') {
     return <div className="msg-user">{msg.content}</div>;
   }
@@ -1140,6 +1243,9 @@ function ChatMessage({ msg }) {
   if (msg.role === 'tool_call') {
     if (msg.status === 'running') {
       return <ToolStatusLine icon={'\u27F3'} color="#a3a3a3" name={msg.name} />;
+    }
+    if (msg.status === 'pending_confirmation') {
+      return <ToolConfirmationBox name={msg.name} args={msg.args} onConfirm={onConfirm} onReject={onReject} />;
     }
     return <ToolResult result={msg.result} />;
   }
@@ -1199,6 +1305,23 @@ export default function App() {
   const inputRef = useRef(null);
   const abortRef = useRef(null);
   const ghostRef = useRef(null);
+
+  const [askBeforeEdits, setAskBeforeEdits] = useState(true);
+  const confirmationResolverRef = useRef(null);
+
+  const confirmTool = useCallback(() => {
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current({ approved: true });
+      confirmationResolverRef.current = null;
+    }
+  }, []);
+
+  const rejectTool = useCallback(() => {
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current({ approved: false });
+      confirmationResolverRef.current = null;
+    }
+  }, []);
 
   // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1401,12 +1524,40 @@ export default function App() {
             conversation = [...conversation, toolMsg];
             setMessages([...conversation]);
 
-            const toolRes = await fetch('/api/tool', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: funcName, args: funcArgs }),
-            });
-            const result = await toolRes.json();
+            const isMutative = ['run_bash', 'write_file', 'edit_file'].includes(funcName);
+            let approved = true;
+
+            if (isMutative && askBeforeEdits) {
+              toolMsg.status = 'pending_confirmation';
+              conversation[conversation.length - 1] = toolMsg;
+              setMessages([...conversation]);
+
+              const userChoice = await new Promise((resolve) => {
+                confirmationResolverRef.current = resolve;
+                const onAbort = () => {
+                  resolve({ approved: false });
+                };
+                controller.signal.addEventListener('abort', onAbort);
+              });
+
+              approved = userChoice.approved;
+            }
+
+            let result;
+            if (approved) {
+              toolMsg.status = 'running';
+              conversation[conversation.length - 1] = toolMsg;
+              setMessages([...conversation]);
+
+              const toolRes = await fetch('/api/tool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: funcName, args: funcArgs }),
+              });
+              result = await toolRes.json();
+            } else {
+              result = { type: 'error', message: 'User rejected tool execution.' };
+            }
 
             conversation[conversation.length - 1] = { ...toolMsg, status: 'completed', result };
             setMessages([...conversation]);
@@ -1455,7 +1606,7 @@ export default function App() {
         }
       }
     }
-  }, [input, messages, activeModel, isLoading, sessionId, provider]);
+  }, [input, messages, activeModel, isLoading, sessionId, provider, askBeforeEdits]);
 
   // ── Slash Commands ─────────────────────────────────────────────────────────
   const handleSlashCommand = useCallback(async (cmd) => {
@@ -1589,7 +1740,7 @@ export default function App() {
         )}
         {messages.map((msg, i) => (
           <React.Fragment key={i}>
-            <ChatMessage msg={msg} />
+            <ChatMessage msg={msg} onConfirm={confirmTool} onReject={rejectTool} />
             <div className="msg-spacer" />
           </React.Fragment>
         ))}
@@ -1667,14 +1818,14 @@ export default function App() {
               </button>
             </div>
             <div className="toolbar-right">
-              <div className="mode-toggle">
+              <div className={`mode-toggle ${askBeforeEdits ? 'active' : ''}`} onClick={() => setAskBeforeEdits(!askBeforeEdits)}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0"/>
                   <path d="M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v2"/>
                   <path d="M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8"/>
                   <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15"/>
                 </svg>
-                Ask before edits
+                {askBeforeEdits ? 'Ask before edits' : 'Auto execute edits'}
               </div>
               <button
                 className="send-btn"
