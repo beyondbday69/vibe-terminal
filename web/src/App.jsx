@@ -350,7 +350,7 @@ function ProviderSelector({ provider, onSave, onClose }) {
   };
 
   const PRESETS = [
-    { label: 'OpenCode', name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1' },
+    { label: 'OpenCode', name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', modelsUrl: 'https://opencode.ai/zen/go/v1/models' },
     { label: 'NVIDIA NIM', name: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1' },
   ];
 
@@ -1299,8 +1299,8 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [models, setModels] = useState([]);
-  const [activeModel, setActiveModel] = useState('deepseek-ai/deepseek-r1');
-  const [provider, setProvider] = useState({ name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' });
+  const [activeModel, setActiveModel] = useState('kimi-k2.6');
+  const [provider, setProvider] = useState({ name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN', modelsUrl: 'https://opencode.ai/zen/go/v1/models' });
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showProviderSelector, setShowProviderSelector] = useState(false);
   const [showResume, setShowResume] = useState(false);

@@ -56,8 +56,9 @@ const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_PROVIDER = {
   name: 'opencode',
-  baseUrl: 'https://opencode.ai/zen/v1',
-  apiKey: '',
+  baseUrl: 'https://opencode.ai/zen/go/v1',
+  apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN',
+  modelsUrl: 'https://opencode.ai/zen/go/v1/models',
 };
 
 const loadConfig = async () => {
@@ -108,7 +109,7 @@ const App = () => {
     }
   }, []);
   const [availableModels, setAvailableModels] = useState([]);
-  const [activeModel, setActiveModel] = useState('gpt-5.5');
+  const [activeModel, setActiveModel] = useState('kimi-k2.6');
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [messages, setMessages] = useState([]);
   const [askBeforeEdits, setAskBeforeEdits] = useState(true);
@@ -527,8 +528,12 @@ const App = () => {
         const providerName = parts[1]?.toLowerCase();
         let newProvider;
         if (providerName === 'opencode') {
-          newProvider = { name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' };
-          newProvider.apiKey = process.env.OPENAI_API_KEY || '';
+          newProvider = {
+            name: 'opencode',
+            baseUrl: 'https://opencode.ai/zen/go/v1',
+            apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN',
+            modelsUrl: 'https://opencode.ai/zen/go/v1/models'
+          };
         } else if (providerName === 'nvidia') {
           const key = parts[2] || '';
           newProvider = { name: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: key };

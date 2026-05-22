@@ -433,7 +433,7 @@ app.post('/api/chat', async (req, res) => {
   const { messages, model, tools } = req.body;
   const config = await loadConfig();
   const env = await loadEnv();
-  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' };
+  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN', modelsUrl: 'https://opencode.ai/zen/go/v1/models' };
   const key = provider.apiKey || env.OPENAI_API_KEY || '';
 
   const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
