@@ -30,7 +30,7 @@ const AGENT_COLORS = [
 // ── File Picker ──────────────────────────────────────────────────────────────
 function FilePicker({ files, selected, onToggle, onAttach, onClose }) {
   const [search, setSearch] = useState('');
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor] = useState(-1);
   const [currentDir, setCurrentDir] = useState('');
   const inputRef = useRef(null);
 
@@ -118,7 +118,8 @@ function FilePicker({ files, selected, onToggle, onAttach, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="overlay-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <AnimatedLogo />
+        <div style={{ marginBottom: 16 }}><img src={newLogo} alt="Mascot Logo" className="mascot-logo" style={{ height: 100, marginBottom: 0 }} /></div>
+
         <div className="overlay-header">
           <span className="title">Attach Files</span>
           <span className="hint">ESC close | ENTER open/toggle</span>
@@ -133,7 +134,7 @@ function FilePicker({ files, selected, onToggle, onAttach, onClose }) {
         <div className="overlay-list" style={{ maxHeight: 320 }}>
           {currentDir && !search && (
             <div
-              className={`overlay-item ${cursor === -1 ? 'selected' : ''}`}
+              className="overlay-item"
               onClick={goUp}
               onMouseEnter={() => setCursor(-1)}
             >
@@ -192,10 +193,62 @@ function FilePicker({ files, selected, onToggle, onAttach, onClose }) {
 
 // ── Logo ─────────────────────────────────────────────────────────────────────
 import newLogo from '../assets/newlogo.png';
+import blinkLogo from '../assets/blink.png';
+
+
+const TAGLINES = [
+  "let's get together and code",
+  "build something amazing today",
+  "turn ideas into reality",
+  "code, create, iterate",
+  "ship it and refine",
+  "from thought to production",
+  "make it work, make it right",
+  "write code that matters",
+  "one line at a time",
+  "craft your digital vision",
+  "dream it, build it",
+  "your codebase, your rules",
+];
 
 function AnimatedLogo({ header }) {
+  const [blinking, setBlinking] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    const scheduleBlink = () => {
+      return setTimeout(() => {
+        setBlinking(true);
+        setTimeout(() => {
+          setBlinking(false);
+          timerRef.current = scheduleBlink();
+        }, 160);
+      }, 5000);
+    };
+    timerRef.current = scheduleBlink();
+    return () => { clearTimeout(timerRef.current); };
+  }, []);
+
   return (
-    <img src={newLogo} alt="Vibe Code" className={`logo-img${header ? ' header' : ''}`} />
+    <img src={blinking ? blinkLogo : newLogo} alt="Vibe Code" className={`logo-img${header ? ' header' : ''}`} />
+  );
+}
+
+function WelcomeScreen() {
+  const [tagline, setTagline] = useState(() => TAGLINES[Math.floor(Math.random() * TAGLINES.length)]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTagline(TAGLINES[Math.floor(Math.random() * TAGLINES.length)]);
+    }, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <>
+      <img src="https://res.cloudinary.com/dj5hhott5/image/upload/v1779452573/ewlhara3zd6wyqwf8ppd.png" alt="Claude Mascot" className="mascot-logo" />
+      <p className="welcome-text">{tagline}</p>
+    </>
   );
 }
 
@@ -216,26 +269,6 @@ function ThinkingText() {
   );
 }
 
-// ── Dropdown ─────────────────────────────────────────────────────────────────
-function CommandDropdown({ items, selectedIndex, onSelect, label }) {
-  if (!items.length) return null;
-  const visible = items.slice(0, 6);
-  return (
-    <div className="dropdown">
-      {visible.map((item, i) => (
-        <div
-          key={i}
-          className={`dropdown-item ${i === selectedIndex ? 'selected' : ''}`}
-          onClick={() => onSelect(item)}
-        >
-          <span className="pointer">{i === selectedIndex ? '\u25B8' : ' '}</span>
-          <span className="label">{item.label}</span>
-          {item.desc && <span className="desc">{item.desc}</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Model Selector ───────────────────────────────────────────────────────────
 function ModelSelector({ models, activeModel, onSelect, onClose }) {
@@ -257,7 +290,8 @@ function ModelSelector({ models, activeModel, onSelect, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="overlay-box" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <AnimatedLogo />
+        <div style={{ marginBottom: 16 }}><img src={newLogo} alt="Mascot Logo" className="mascot-logo" style={{ height: 100, marginBottom: 0 }} /></div>
+
         <div className="overlay-header">
           <span className="title">Select Model</span>
           <span className="hint">ESC: cancel</span>
@@ -323,7 +357,8 @@ function ProviderSelector({ provider, onSave, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="overlay-box" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <AnimatedLogo />
+        <div style={{ marginBottom: 16 }}><img src={newLogo} alt="Mascot Logo" className="mascot-logo" style={{ height: 100, marginBottom: 0 }} /></div>
+
         <div className="overlay-header">
           <span className="title">Provider Settings</span>
           <span className="hint">ESC: cancel</span>
@@ -371,8 +406,11 @@ function ProviderSelector({ provider, onSave, onClose }) {
         />
 
         <div className="overlay-footer" style={{ marginTop: 12 }}>
-          <button className="preset-btn active" onClick={handleSubmit}>Save</button>
-          <button className="preset-btn" onClick={onClose}>Cancel</button>
+          <span />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="preset-btn active" onClick={handleSubmit}>Save</button>
+            <button className="preset-btn" onClick={onClose}>Cancel</button>
+          </div>
         </div>
       </div>
     </div>
@@ -421,7 +459,8 @@ function SessionResume({ sessions, onLoad, onDelete, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="overlay-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <AnimatedLogo />
+        <div style={{ marginBottom: 16 }}><img src={newLogo} alt="Mascot Logo" className="mascot-logo" style={{ height: 100, marginBottom: 0 }} /></div>
+
         <div className="overlay-header">
           <span className="title">Resume Session</span>
           <span className="hint">ESC: cancel | DEL: delete</span>
@@ -509,7 +548,8 @@ function AgentsPanel({ agents, onStop, onRefresh, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="overlay-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <AnimatedLogo />
+        <div style={{ marginBottom: 16 }}><img src={newLogo} alt="Mascot Logo" className="mascot-logo" style={{ height: 100, marginBottom: 0 }} /></div>
+
         <div className="overlay-header">
           <span className="title">Agents</span>
           <span className="hint">ESC close | R refresh</span>
@@ -677,7 +717,7 @@ function ToolResult({ result }) {
             <span className="line-num">{String(i + 1).padStart(3)}</span>{'  '}{l}
           </div>
         ))}
-        {hasMore && <div className="tool-content"><span style={{ color: '#525252' }}>{`  ... ${result.lineCount - 5} more lines`}</span></div>}
+        {hasMore && <div className="tool-content"><span style={{ color: '#525252' }}>{`  ... (${result.lineCount - 5}) more lines`}</span></div>}
       </>
     );
   }
@@ -701,7 +741,7 @@ function ToolResult({ result }) {
           icon={'\u2713'} color="var(--green)" name="edit_file"
           detail={`<span class="file-badge">${shortenPath(result.path)}</span>  ${result.blockCount} block(s)`}
         />
-        <EditDiffView blocks={result.blocks} />
+        <EditDiffView blocks={result.blocks} path={result.path} oldContent={result.oldContent} newContent={result.newContent} />
       </>
     );
   }
@@ -709,26 +749,34 @@ function ToolResult({ result }) {
   if (result.type === 'bash_result') {
     const success = result.exitCode === 0 && !result.timedOut;
     const output = (result.stdout + result.stderr).trim();
+    const lines = output.split('\n');
+    const displayLines = lines.slice(0, 5);
+    const hasMore = lines.length > 5;
     return (
       <>
         <ToolStatusLine
           icon={success ? '\u2713' : '\u2717'} color={success ? 'var(--green)' : 'var(--red)'} name="run_bash"
           detail={`${result.command.slice(0, 40)}  [exit: ${result.exitCode}]`}
         />
-        {output.split('\n').slice(0, 10).map((l, i) => (
+        {displayLines.map((l, i) => (
           <div key={i} className="tool-content" style={{ color: '#d4d4d4' }}>{l}</div>
         ))}
+        {hasMore && <div className="tool-content"><span style={{ color: '#525252' }}>{`  ... (${lines.length - 5}) more lines`}</span></div>}
       </>
     );
   }
 
   if (result.type === 'generic') {
+    const lines = (result.message || '').split('\n');
+    const displayLines = lines.slice(0, 5);
+    const hasMore = lines.length > 5;
     return (
       <>
         <ToolStatusLine icon={'\u2713'} color="var(--green)" name="result" />
-        {(result.message || '').split('\n').slice(0, 10).map((l, i) => (
+        {displayLines.map((l, i) => (
           <div key={i} className="tool-content" style={{ color: '#a3a3a3' }}>{l}</div>
         ))}
+        {hasMore && <div className="tool-content"><span style={{ color: '#525252' }}>{`  ... (${lines.length - 5}) more lines`}</span></div>}
       </>
     );
   }
@@ -740,18 +788,55 @@ function ToolResult({ result }) {
   );
 }
 
-function EditDiffView({ blocks }) {
+function EditDiffView({ blocks, path, oldContent, newContent }) {
   if (!blocks?.length) return null;
+
+  const CONTEXT_LINES = 4;
+  const oldLines = oldContent ? oldContent.split('\n') : [];
+  const newLines = newContent ? newContent.split('\n') : [];
+
   return (
     <div className="diff-view">
+      {path && <div className="diff-hunk-separator" style={{ color: 'var(--text)', fontWeight: 'bold' }}>{shortenPath(path)}</div>}
       {blocks.map((b, i) => {
         const sl = b.searchLines || [];
         const rl = b.replaceLines || [];
+        const startLine = b.lineNum;
+
+        // Get context lines before
+        const contextBefore = [];
+        for (let c = Math.max(0, startLine - CONTEXT_LINES - 1); c < startLine - 1; c++) {
+          if (oldLines[c] !== undefined) {
+            contextBefore.push({ line: oldLines[c], num: c + 1, type: 'context' });
+          }
+        }
+
+        // Get context lines after (based on new content)
+        const afterStart = startLine - 1 + sl.length;
+        const contextAfter = [];
+        for (let c = afterStart; c < Math.min(oldLines.length, afterStart + CONTEXT_LINES); c++) {
+          if (oldLines[c] !== undefined) {
+            contextAfter.push({ line: oldLines[c], num: c + 1, type: 'context' });
+          }
+        }
+
         return (
           <React.Fragment key={i}>
-            <div className="diff-hunk-separator">@@ line {b.lineNum} @@</div>
+            {i > 0 && <div className="diff-hunk-separator" style={{ height: 2, padding: 0 }} />}
+
+            {/* Context before */}
+            {contextBefore.map((ctx, j) => (
+              <div key={`cb${j}`} className="diff-line context">
+                <span className="diff-line-num old">{String(ctx.num).padStart(3)}</span>
+                <span className="diff-line-num new">{String(ctx.num).padStart(3)}</span>
+                <span className="diff-sign"> </span>
+                <span className="diff-text">{ctx.line}</span>
+              </div>
+            ))}
+
+            {/* Removed lines */}
             {sl.map((l, j) => {
-              const lineNum = b.lineNum + j;
+              const lineNum = startLine + j;
               return (
                 <div key={`s${j}`} className="diff-line removed">
                   <span className="diff-line-num old">{String(lineNum).padStart(3)}</span>
@@ -761,8 +846,10 @@ function EditDiffView({ blocks }) {
                 </div>
               );
             })}
+
+            {/* Added lines */}
             {rl.map((l, j) => {
-              const lineNum = b.lineNum + j;
+              const lineNum = startLine + j;
               return (
                 <div key={`r${j}`} className="diff-line added">
                   <span className="diff-line-num old">   </span>
@@ -772,6 +859,16 @@ function EditDiffView({ blocks }) {
                 </div>
               );
             })}
+
+            {/* Context after */}
+            {contextAfter.map((ctx, j) => (
+              <div key={`ca${j}`} className="diff-line context">
+                <span className="diff-line-num old">{String(ctx.num).padStart(3)}</span>
+                <span className="diff-line-num new">{String(ctx.num).padStart(3)}</span>
+                <span className="diff-sign"> </span>
+                <span className="diff-text">{ctx.line}</span>
+              </div>
+            ))}
           </React.Fragment>
         );
       })}
@@ -868,15 +965,168 @@ function shortenPath(p) {
   return p.replace(/^.*\//, '');
 }
 
-// ── Strip Markdown ───────────────────────────────────────────────────────────
-function stripMarkdown(text) {
-  if (!text) return '';
-  return text
-    .replace(/```[\w]*\n?/g, '').replace(/```$/gm, '')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^\s*[-*+]\s+/gm, '  ').replace(/^\s*\d+\.\s+/gm, '  ');
+// ── Render Markdown ──────────────────────────────────────────────────────────
+function ContextIndicator({ messages }) {
+  const [tokens, setTokens] = useState(0);
+
+  useEffect(() => {
+    let charCount = 0;
+    messages.forEach(m => {
+      charCount += (m.content || '').length;
+      if (m.tool_calls) {
+        m.tool_calls.forEach(tc => {
+          charCount += JSON.stringify(tc).length;
+        });
+      }
+    });
+    setTokens(Math.round(charCount / 4));
+  }, [messages]);
+
+  return <span>Context: {tokens.toLocaleString()} tokens</span>;
+}
+
+function renderMarkdownLine(text) {
+  if (!text) return text;
+  const parts = [];
+  let remaining = text;
+  let key = 0;
+  while (remaining.length > 0) {
+    // Bold
+    const boldMatch = remaining.match(/^(.*?)\*\*(.+?)\*\*/);
+    if (boldMatch) {
+      if (boldMatch[1]) parts.push(<span key={key++}>{boldMatch[1]}</span>);
+      parts.push(<strong key={key++}>{boldMatch[2]}</strong>);
+      remaining = remaining.slice(boldMatch[0].length);
+      continue;
+    }
+    // Inline code
+    const codeMatch = remaining.match(/^(.*?)`([^`]+)`/);
+    if (codeMatch) {
+      if (codeMatch[1]) parts.push(<span key={key++}>{codeMatch[1]}</span>);
+      parts.push(<code key={key++} className="inline-code">{codeMatch[2]}</code>);
+      remaining = remaining.slice(codeMatch[0].length);
+      continue;
+    }
+    // Italic
+    const italicMatch = remaining.match(/^(.*?)\*(.+?)\*/);
+    if (italicMatch) {
+      if (italicMatch[1]) parts.push(<span key={key++}>{italicMatch[1]}</span>);
+      parts.push(<em key={key++}>{italicMatch[2]}</em>);
+      remaining = remaining.slice(italicMatch[0].length);
+      continue;
+    }
+    parts.push(<span key={key++}>{remaining}</span>);
+    break;
+  }
+  return parts;
+}
+
+function renderMarkdown(text) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  const elements = [];
+  let i = 0;
+  let key = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // Headers
+    const headerMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      elements.push(<div key={key++} className={`md-h md-h${level}`}>{headerMatch[2]}</div>);
+      i++; continue;
+    }
+    // Unordered list
+    const ulMatch = line.match(/^\s*[-*+]\s+(.+)/);
+    if (ulMatch) {
+      elements.push(<div key={key++} className="md-li"><span className="md-bullet">{'\u2022'}</span>{renderMarkdownLine(ulMatch[1])}</div>);
+      i++; continue;
+    }
+    // Ordered list
+    const olMatch = line.match(/^\s*(\d+)\.\s+(.+)/);
+    if (olMatch) {
+      elements.push(<div key={key++} className="md-li"><span className="md-num">{olMatch[1]}.</span>{renderMarkdownLine(olMatch[2])}</div>);
+      i++; continue;
+    }
+    // Empty line
+    if (line.trim() === '') {
+      elements.push(<div key={key++} className="md-empty" />);
+      i++; continue;
+    }
+    // Normal text
+    elements.push(<div key={key++}>{renderMarkdownLine(line)}</div>);
+    i++;
+  }
+  return elements;
+}
+
+function parseAssistantContent(raw) {
+  if (!raw) return [];
+  const parts = [];
+  const regex = /```(\w*)\n?([\s\S]*?)```/g;
+  let last = 0;
+  let m;
+  while ((m = regex.exec(raw)) !== null) {
+    if (m.index > last) parts.push({ type: 'text', content: raw.slice(last, m.index) });
+    parts.push({ type: 'code', lang: m[1] || '', content: m[2].replace(/\n$/, '') });
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) parts.push({ type: 'text', content: raw.slice(last) });
+  return parts;
+}
+
+function langLabel(lang) {
+  const map = {
+    js: 'JAVASCRIPT', javascript: 'JAVASCRIPT', jsx: 'JAVASCRIPT',
+    ts: 'TYPESCRIPT', typescript: 'TYPESCRIPT', tsx: 'TYPESCRIPT',
+    py: 'PYTHON', python: 'PYTHON',
+    rb: 'RUBY', ruby: 'RUBY',
+    go: 'GO', golang: 'GO',
+    rs: 'RUST', rust: 'RUST',
+    java: 'JAVA',
+    c: 'C', cpp: 'C++', 'c++': 'C++', csharp: 'C#', 'c#': 'C#',
+    php: 'PHP',
+    swift: 'SWIFT',
+    kt: 'KOTLIN', kotlin: 'KOTLIN',
+    html: 'HTML', htm: 'HTML',
+    css: 'CSS', scss: 'SCSS', sass: 'SASS', less: 'LESS',
+    json: 'JSON', yaml: 'YAML', yml: 'YAML', toml: 'TOML', xml: 'XML',
+    sql: 'SQL', mysql: 'MYSQL', postgresql: 'POSTGRESQL',
+    sh: 'BASH', bash: 'BASH', zsh: 'BASH', shell: 'BASH',
+    md: 'MARKDOWN', markdown: 'MARKDOWN',
+    txt: 'TEXT', text: 'TEXT',
+    dockerfile: 'DOCKER', docker: 'DOCKER',
+    makefile: 'MAKE', make: 'MAKE',
+    lua: 'LUA', r: 'R', scala: 'SCALA', dart: 'DART',
+    vue: 'VUE', svelte: 'SVELTE',
+    graphql: 'GRAPHQL', gql: 'GRAPHQL',
+    nginx: 'NGINX', apache: 'APACHE',
+    powershell: 'POWERSHELL', ps1: 'POWERSHELL',
+    vim: 'VIM',
+  };
+  if (!lang) return 'CODE';
+  return map[lang.toLowerCase()] || lang.toUpperCase();
+}
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={`code-copy-btn ${copied ? 'copied' : ''}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+      </svg>
+    </button>
+  );
 }
 
 // ── Chat Message ─────────────────────────────────────────────────────────────
@@ -894,12 +1144,31 @@ function ChatMessage({ msg }) {
     return <ToolResult result={msg.result} />;
   }
   if (msg.role === 'assistant') {
-    const content = stripMarkdown(msg.content || '').trimStart();
-    if (!content) return null;
+    const parts = parseAssistantContent(msg.content || '');
+    if (parts.length === 0) return null;
     return (
-      <div className="msg-assistant">
-        <span className="bullet">{'\u2022'}</span>
-        <span>{content}</span>
+      <div className="msg-assistant-wrapper">
+        {parts.map((part, i) => {
+          if (part.type === 'code') {
+            const code = part.content;
+            return (
+              <div key={i} className="code-block">
+                <div className="code-block-header">
+                  <span className="code-lang">{langLabel(part.lang)}</span>
+                  <CopyButton text={code} />
+                </div>
+                <pre className="code-block-content"><code>{code}</code></pre>
+              </div>
+            );
+          }
+          const rendered = renderMarkdown(part.content.trimStart());
+          if (!rendered) return null;
+          return (
+            <div key={i} className="msg-assistant">
+              {rendered}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -920,17 +1189,16 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   const [showAgents, setShowAgents] = useState(false);
+  const [showTerminalHint, setShowTerminalHint] = useState(true);
   const [agents, setAgents] = useState([]);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [codebaseFiles, setCodebaseFiles] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [attachedFiles, setAttachedFiles] = useState([]);
-  const [dropdownItems, setDropdownItems] = useState([]);
-  const [dropdownIndex, setDropdownIndex] = useState(0);
-  const [showDropdown, setShowDropdown] = useState(false);
   const chatRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+  const ghostRef = useRef(null);
 
   // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -974,23 +1242,21 @@ export default function App() {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages, isLoading]);
 
-  // ── Dropdown logic ─────────────────────────────────────────────────────────
+  // ── Ghost text logic ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!input.startsWith('/') || input.includes(' ')) {
-      if (input.startsWith('/model ') && models.length) {
-        const q = input.slice(7).toLowerCase();
-        setDropdownItems(models.filter(m => m.toLowerCase().includes(q)).map(m => ({ label: m, value: m })));
-        setShowDropdown(true);
-      } else {
-        setShowDropdown(false);
-      }
+    if (!ghostRef.current) return;
+    if (!input || input.includes(' ') || !input.startsWith('/')) {
+      ghostRef.current.innerHTML = '';
       return;
     }
-    const filtered = SLASH_COMMANDS.filter(c => c.startsWith(input.toLowerCase()));
-    setDropdownItems(filtered.map(c => ({ label: c, desc: getCommandDesc(c), value: c })));
-    setShowDropdown(filtered.length > 0 && input.length > 0);
-    setDropdownIndex(0);
-  }, [input, models]);
+    const match = SLASH_COMMANDS.find(c => c.toLowerCase().startsWith(input.toLowerCase()));
+    if (match) {
+      const suggestionPart = match.substring(input.length);
+      ghostRef.current.innerHTML = `<span style="color: transparent;">${input}</span>${suggestionPart}`;
+    } else {
+      ghostRef.current.innerHTML = '';
+    }
+  }, [input]);
 
   // ── File Attach ────────────────────────────────────────────────────────────
   const loadCodebaseFiles = useCallback(async () => {
@@ -1286,48 +1552,41 @@ export default function App() {
     if (e.ctrlKey && e.key === 'a') { e.preventDefault(); onRefreshAgents(); setShowAgents(true); return; }
     if (e.ctrlKey && e.key === 'f') { e.preventDefault(); loadCodebaseFiles(); setShowFilePicker(true); return; }
 
-    if (showDropdown) {
-      if (e.key === 'ArrowUp') { e.preventDefault(); setDropdownIndex(i => Math.max(0, i - 1)); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setDropdownIndex(i => Math.min(dropdownItems.length - 1, i + 1)); return; }
-      if (e.key === 'Enter' && dropdownItems[dropdownIndex]) {
-        e.preventDefault();
-        const val = dropdownItems[dropdownIndex].value;
-        if (val.startsWith('/')) { setInput(val + ' '); }
-        else { setInput(val); }
-        setShowDropdown(false);
-        return;
-      }
+    // Ghost text autocomplete
+    if ((e.key === 'Tab' || e.key === 'ArrowRight') && ghostRef.current?.textContent) {
+      e.preventDefault();
+      setInput(ghostRef.current.textContent + ' ');
+      return;
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
-  }, [showDropdown, dropdownItems, dropdownIndex, isLoading, showModelSelector, showProviderSelector, showResume, showAgents, showFilePicker, handleSubmit, onRefreshAgents, loadCodebaseFiles]);
+  }, [isLoading, showModelSelector, showProviderSelector, showResume, showAgents, showFilePicker, handleSubmit, onRefreshAgents, loadCodebaseFiles]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="app" onKeyDown={handleKeyDown}>
+    <div className="app-container" onKeyDown={handleKeyDown}>
       {/* Header */}
-      <div className="header">
-        <AnimatedLogo header />
-        <div className="header-info">
-          <div className="header-title">Vibe Code v1.0.1</div>
-          <div className="header-meta">
-            Active: <span className="accent">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</span>
+      {messages.length === 0 && (
+        <header className="top-header">
+          <div className="logo-icon">
+            <svg width="26" height="26" viewBox="0 -.01 39.5 39.53" xmlns="http://www.w3.org/2000/svg">
+              <path d="m7.75 26.27 7.77-4.36.13-.38-.13-.21h-.38l-1.3-.08-4.44-.12-3.85-.16-3.73-.2-.94-.2-.88-1.16.09-.58.79-.53 1.13.1 2.5.17 3.75.26 2.72.16 4.03.42h.64l.09-.26-.22-.16-.17-.16-3.88-2.63-4.2-2.78-2.2-1.6-1.19-.81-.6-.76-.26-1.66 1.08-1.19 1.45.1.37.1 1.47 1.13 3.14 2.43 4.1 3.02.6.5.24-.17.03-.12-.27-.45-2.23-4.03-2.38-4.1-1.06-1.7-.28-1.02c-.1-.42-.17-.77-.17-1.2l1.23-1.67.68-.22 1.64.22.69.6 1.02 2.33 1.65 3.67 2.56 4.99.75 1.48.4 1.37.15.42h.26v-.24l.21-2.81.39-3.45.38-4.44.13-1.25.62-1.5 1.23-.81.96.46.79 1.13-.11.73-.47 3.05-.92 4.78-.6 3.2h.35l.4-.4 1.62-2.15 2.72-3.4 1.2-1.35 1.4-1.49.9-.71h1.7l1.25 1.86-.56 1.92-1.75 2.22-1.45 1.88-2.08 2.8-1.3 2.24.12.18.31-.03 4.7-1 2.54-.46 3.03-.52 1.37.64.15.65-.54 1.33-3.24.8-3.8.76-5.66 1.34-.07.05.08.1 2.55.24 1.09.06h2.67l4.97.37 1.3.86.78 1.05-.13.8-2 1.02-2.7-.64-6.3-1.5-2.16-.54h-.3v.18l1.8 1.76 3.3 2.98 4.13 3.84.21.95-.53.75-.56-.08-3.63-2.73-1.4-1.23-3.17-2.67h-.21v.28l.73 1.07 3.86 5.8.2 1.78-.28.58-1 .35-1.1-.2-2.26-3.17-2.33-3.57-1.88-3.2-.23.13-1.11 11.95-.52.61-1.2.46-1-.76-.53-1.23.53-2.43.64-3.17.52-2.52.47-3.13.28-1.04-.02-.07-.23.03-2.36 3.24-3.59 4.85-2.84 3.04-.68.27-1.18-.61.11-1.09.66-.97 3.93-5 2.37-3.1 1.53-1.79-.01-.26h-.09l-10.44 6.78-1.86.24-.8-.75.1-1.23.38-.4 3.14-2.16z" fill="#d97757"/>
+            </svg>
           </div>
-          <div className="header-meta">{models.length} models • {TOOLS.length} AI Tools Active</div>
-          <div className="header-shortcuts">
-            <span className="accent">Ctrl+M</span> model <span className="accent">/help</span> commands
-          </div>
-        </div>
-        <button className="agents-btn" onClick={() => { onRefreshAgents(); setShowAgents(true); }}>
-          Agents
-        </button>
-      </div>
+          <div className="logo-text">Vibe Code</div>
+        </header>
+      )}
 
       {/* Chat */}
-      <div className="chat-area" ref={chatRef}>
+      <main className="main-content" ref={chatRef}>
+        {messages.length === 0 && !isLoading && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <WelcomeScreen />
+          </div>
+        )}
         {messages.map((msg, i) => (
           <React.Fragment key={i}>
             <ChatMessage msg={msg} />
@@ -1337,65 +1596,106 @@ export default function App() {
         {isLoading && !messages.some(m => m.role === 'tool_call' && m.status === 'running') && (
           <ThinkingText />
         )}
-      </div>
+      </main>
 
       {/* Input */}
-      <div className="input-area">
-        {attachedFiles.length > 0 && (
-          <div className="attached-files">
-            {attachedFiles.map((f, i) => (
-              <span key={i} className="attached-chip">
-                {f.path.split('/').pop()}
-                <button className="attached-remove" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))}>x</button>
-              </span>
-            ))}
+      <footer className="bottom-area">
+        {/* Terminal Hint Banner */}
+        {showTerminalHint && (
+          <div className="terminal-hint">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+            <div className="terminal-hint-text">
+              Prefer the Terminal experience? <span>try Vibe Cli instead.</span>
+            </div>
+            <div className="close-hint" onClick={() => setShowTerminalHint(false)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </div>
           </div>
         )}
-        {showDropdown && (
-          <CommandDropdown
-            items={dropdownItems}
-            selectedIndex={dropdownIndex}
-            onSelect={(item) => {
-              if (item.value.startsWith('/')) { setInput(item.value + ' '); }
-              else { setInput(item.value); }
-              setShowDropdown(false);
-              inputRef.current?.focus();
-            }}
-          />
-        )}
-        <div className="input-box">
-          <span className="prefix">{'>'}</span>
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Ask anything..."
-            autoFocus
-          />
-          <button
-            className="input-action-btn attach-btn"
-            title="Attach files"
-            onClick={() => { loadCodebaseFiles(); setShowFilePicker(true); }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-          <div className="input-divider" />
-          <button
-            className="input-action-btn agents-action-btn"
-            title="Agents"
-            onClick={() => { onRefreshAgents(); setShowAgents(true); }}
-          >
-            AGENTS
-          </button>
-          {isLoading && (
-            <button className="stop-btn" onClick={() => abortRef.current?.abort()} title="Stop">
-              <svg width="12" height="12" viewBox="0 0 12 12"><rect width="12" height="12" rx="2" fill="currentColor"/></svg>
-            </button>
+
+        <div className="input-wrapper">
+          {attachedFiles.length > 0 && (
+            <div className="attached-files">
+              {attachedFiles.map((f, i) => (
+                <span key={i} className="attached-chip">
+                  {f.path.split('/').pop()}
+                  <button className="attached-remove" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))}>x</button>
+                </span>
+              ))}
+            </div>
           )}
+          
+          <div className="ghost-input-container">
+            <span className="ghost-text" ref={ghostRef} />
+            <input
+              ref={inputRef}
+              className="prompt-input"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="What to do first? Ask about this codebase..."
+              autoFocus
+            />
+          </div>
+          <div className="input-toolbar">
+            <div className="toolbar-left">
+              <button
+                className="icon-btn"
+                title="Attach files"
+                onClick={() => { loadCodebaseFiles(); setShowFilePicker(true); }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              <button
+                className="icon-btn slash-box-btn"
+                title="Commands"
+                onClick={() => { setInput('/'); inputRef.current?.focus(); }}
+              >
+                <div className="slash-box">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="16" y1="4" x2="8" y2="20"/>
+                  </svg>
+                </div>
+              </button>
+            </div>
+            <div className="toolbar-right">
+              <div className="mode-toggle">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0"/>
+                  <path d="M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v2"/>
+                  <path d="M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8"/>
+                  <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15"/>
+                </svg>
+                Ask before edits
+              </div>
+              <button
+                className="send-btn"
+                title={isLoading ? 'Stop' : 'Send'}
+                onClick={() => isLoading ? abortRef.current?.abort() : handleSubmit()}
+              >
+                {isLoading ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"/>
+                    <polyline points="5 12 12 5 19 12"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </footer>
 
       {/* Footer */}
       <div className="footer">
@@ -1403,6 +1703,7 @@ export default function App() {
         <span className="meta">
           Model: <span className="accent">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</span>
           {'  \u2022  '}Tools Loaded: {TOOLS.length}
+          {'  \u2022  '}<ContextIndicator messages={messages} />
         </span>
       </div>
 

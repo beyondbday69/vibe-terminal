@@ -1,6 +1,6 @@
 # Vibe Code
 
-Terminal-based AI chat client built with React and Express. A web-based interface for chatting with LLMs, supporting streaming responses, tool execution, session management, and a sub-agent system.
+Terminal-based AI chat client built with React and Express. A web-based interface for chatting with LLMs, supporting streaming responses, tool execution, session management, file attachment, checkpoint system, and a sub-agent system.
 
 ## Quick Start
 
@@ -19,8 +19,27 @@ Opens at `http://localhost:3000` (Vite dev server proxies API to Express on port
 - Markdown stripping for clean terminal-style output
 - Scrollable chat area with keyboard navigation
 - Stop button to interrupt running requests
+- Animated thinking indicator with rotating messages
+- Copy button on code blocks
+- Ghost text autocomplete for slash commands (type `/` to see suggestions)
+- Tab or Arrow Right to accept autocomplete suggestion
+- Animated logo with blinking mascot and rotating taglines
+- Dismissible terminal hint banner
 
-### Tools (26 available)
+### File Attach System
+- Browse and attach files from the codebase to your message
+- Directory tree navigation with search
+- File type icons based on extension (JS, TS, Py, HTML, CSS, etc.)
+- Multi-select support
+- Attached files shown as removable chips in input
+
+### Diff View
+- Syntax-highlighted diffs with added/removed coloring
+- Context-aware hunks (shows surrounding lines)
+- Line numbers for both old and new content
+- Unified diff format for easy reading
+
+### Tools (16 available)
 - **Shell**: `run_bash` - Execute commands with 30s timeout
 - **Files**: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_search`
 - **Web**: `web_fetch`, `web_search` (DuckDuckGo)
@@ -39,8 +58,14 @@ Sub-agents run autonomous AI loops with full tool access:
 - Auto-save after each AI response
 - `/resume` to browse and load saved sessions
 - `/save` to manually save current conversation
-- `/delete` to remove sessions
+- `/delete <id>` to remove sessions
 - Full conversation history preserved with tool results
+- Shows message count, model, and time since saved
+
+### Checkpoint System
+- `/checkpoint` or `/rewind` to save conversation snapshots
+- Restore conversations to previous checkpoints
+- Branch from checkpoints to try alternative approaches
 
 ### Provider System
 - `/provider` opens settings overlay
@@ -67,10 +92,14 @@ Sub-agents run autonomous AI loops with full tool access:
 | `/model <id>` | Switch model directly |
 | `/apikey <key>` | Set API key |
 | `/provider` | Provider settings overlay |
+| `/checkpoint` | Save checkpoint |
+| `/rewind` | Rewind to checkpoint |
+| `/branch` | Fork from checkpoint |
 | `/resume` | Browse saved sessions |
 | `/save` | Save current session |
 | `/delete <id>` | Delete a session |
 | `/agents` | Show agents panel |
+| `/attach` | Attach files to message |
 | `/clear` | Clear chat history |
 | `/init` | Create CLAUDE.md |
 | `/exit` | Exit (web: close tab) |
@@ -81,8 +110,11 @@ Sub-agents run autonomous AI loops with full tool access:
 |----------|--------|
 | `Ctrl+M` | Open model selector |
 | `Ctrl+A` | Open agents panel |
+| `Ctrl+F` | Attach files |
 | `Enter` | Send message |
 | `Escape` | Close overlay/cancel |
+| `Arrow Up/Down` | Navigate dropdowns |
+| `Delete` | Delete session (in resume) |
 
 ## Architecture
 
@@ -114,9 +146,13 @@ web/
 | `POST` | `/api/chat` | Stream chat completions |
 | `POST` | `/api/tool` | Execute any tool |
 | `GET` | `/api/sessions` | List saved sessions |
+| `GET` | `/api/sessions/:id` | Get session by ID |
 | `POST` | `/api/sessions` | Save a session |
 | `DELETE` | `/api/sessions/:id` | Delete a session |
 | `GET` | `/api/agents` | List all agents |
+| `GET` | `/api/files` | List codebase files |
+| `GET` | `/api/checkpoints/:sessionId` | Get checkpoints |
+| `POST` | `/api/checkpoints` | Save checkpoint |
 
 ### Data Storage
 
@@ -132,8 +168,9 @@ All data stored under `~/.vibe-code/`:
 
 1. Open `/provider` command
 2. Select preset or enter custom URL
-3. Enter API key if needed
-4. Models auto-refresh from provider
+3. Enter Models URL if different from base URL
+4. Enter API key if needed
+5. Models auto-refresh from provider
 
 ### API Key
 
