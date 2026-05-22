@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "module": "CommonJS",
-    "moduleResolution": "node16",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "jsx": "react",
     "strict": true,
     "esModuleInterop": true,
@@ -13,7 +13,7 @@
   },
   "ts-node": {
     "compilerOptions": {
-      "module": "CommonJS"
+      "module": "ES2022"
     }
   }
 }

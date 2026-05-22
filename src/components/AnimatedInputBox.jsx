@@ -37,7 +37,7 @@ export const AnimatedInputBox = ({ isLoading, input, selectedFile }) => {
         <ThinkingText />
       ) : (
         <Box>
-          <Text color={COLORS.primary}>{'> '}</Text>
+          <Text color={COLORS[0]}>{'> '}</Text>
           <Text color="white">{displayText}</Text>
           {badge && <Text color="#D77757">  [{badge}]</Text>}
           {!badge && ghostText && <Text color="#666666">{ghostText}</Text>}

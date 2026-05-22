@@ -89,6 +89,9 @@ async function callAI(messages) {
   }
 
   const json = await res.json();
+  if (!json.choices || json.choices.length === 0) {
+    throw new Error('No choices returned by API');
+  }
   return json.choices[0].message;
 }
 

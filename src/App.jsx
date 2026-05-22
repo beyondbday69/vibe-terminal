@@ -285,7 +285,11 @@ const App = () => {
           headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
         });
         const json = await res.json();
-        setAvailableModels(json.data.map(m => m.id));
+        if (json && json.data) {
+          setAvailableModels(json.data.map(m => m.id));
+        } else {
+          setAvailableModels(['gpt-5.5']);
+        }
       } catch {
         setAvailableModels([]);
       }
@@ -524,7 +528,11 @@ const App = () => {
             headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
           });
           const json = await res.json();
+          if (json && json.data) {
           setAvailableModels(json.data.map(m => m.id));
+        } else {
+          setAvailableModels(['gpt-5.5']);
+        }
         } catch {
           setAvailableModels([]);
         }

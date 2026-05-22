@@ -77,7 +77,7 @@ function globToRegex(pattern) {
 
 export async function handleGlobFiles(args) {
   const { pattern } = args;
-  if (!pattern) return 'Error: No pattern provided.';
+  if (!pattern) return { type: 'error', message: 'Error: No pattern provided.' };
 
   const cwd = process.cwd();
   const allFiles = [];
@@ -88,17 +88,17 @@ export async function handleGlobFiles(args) {
   try {
     isMatch = globToRegex(pattern);
   } catch {
-    return `Error: Invalid glob pattern: ${pattern}`;
+    return { type: 'error', message: `Error: Invalid glob pattern: ${pattern}` };
   }
   const matched = relativePaths.filter(f => isMatch.test(f)).slice(0, GLOB_MAX_RESULTS);
 
-  if (matched.length === 0) return `No files matched the pattern: ${pattern}`;
-  return matched.join('\n');
+  if (matched.length === 0) return { type: 'generic', message: `No files matched the pattern: ${pattern}` };
+  return { type: 'generic', message: matched.join('\n') };
 }
 
 export async function handleGrepSearch(args) {
   const { search_term, path: searchPath } = args;
-  if (!search_term) return 'Error: No search_term provided.';
+  if (!search_term) return { type: 'error', message: 'Error: No search_term provided.' };
 
   const root = searchPath ? path.resolve(process.cwd(), searchPath) : process.cwd();
 
@@ -151,6 +151,6 @@ export async function handleGrepSearch(args) {
     }
   }
 
-  if (matches.length === 0) return `No matches found for: ${search_term}`;
-  return matches.join('\n');
+  if (matches.length === 0) return { type: 'generic', message: `No matches found for: ${search_term}` };
+  return { type: 'generic', message: matches.join('\n') };
 }

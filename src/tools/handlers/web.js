@@ -17,9 +17,9 @@ function stripHtml(html) {
 
 export async function handleWebFetch(args) {
   const { url } = args;
-  if (!url) return 'Error: No URL provided.';
+  if (!url) return { type: 'error', message: 'Error: No URL provided.' };
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return 'Error: URL must start with http:// or https://';
+    return { type: 'error', message: 'Error: URL must start with http:// or https://' };
   }
 
   try {
@@ -27,7 +27,7 @@ export async function handleWebFetch(args) {
       signal: AbortSignal.timeout(10_000),
       headers: { 'User-Agent': 'MistralVibe/1.0' },
     });
-    if (!res.ok) return `Error: HTTP ${res.status} ${res.statusText}`;
+    if (!res.ok) return { type: 'error', message: `Error: HTTP ${res.status} ${res.statusText}` };
 
     const contentType = res.headers.get('content-type') || '';
     const body = await res.text();
@@ -43,14 +43,14 @@ export async function handleWebFetch(args) {
       ? body.slice(0, WEB_FETCH_MAX_CHARS) + '\n[Content truncated]'
       : body;
   } catch (err) {
-    if (err.name === 'TimeoutError') return 'Error: Request timed out after 10s.';
-    return `Error fetching URL: ${err.message}`;
+    if (err.name === 'TimeoutError') return { type: 'error', message: 'Error: Request timed out after 10s.' };
+    return { type: 'error', message: `Error fetching URL: ${err.message}` };
   }
 }
 
 export async function handleWebSearch(args) {
   const { query } = args;
-  if (!query) return 'Error: No query provided.';
+  if (!query) return { type: 'error', message: 'Error: No query provided.' };
 
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -60,7 +60,7 @@ export async function handleWebSearch(args) {
         'User-Agent': 'Mozilla/5.0 (compatible; MistralVibe/1.0)',
       },
     });
-    if (!res.ok) return `Error: DuckDuckGo returned HTTP ${res.status}`;
+    if (!res.ok) return { type: 'error', message: `Error: DuckDuckGo returned HTTP ${res.status}` };
 
     const html = await res.text();
 
@@ -81,7 +81,7 @@ export async function handleWebSearch(args) {
     }
 
     if (links.length === 0) {
-      return `No results found for: ${query}\nTry using web_fetch to visit specific URLs directly.`;
+      return { type: 'error', message: `No results found for: ${query}\nTry using web_fetch to visit specific URLs directly.` };
     }
 
     for (let i = 0; i < links.length; i++) {
@@ -91,6 +91,6 @@ export async function handleWebSearch(args) {
 
     return results.join('\n\n');
   } catch (err) {
-    return `Web search failed: ${err.message}\nYou can use web_fetch to visit specific URLs directly.`;
+    return { type: 'error', message: `Web search failed: ${err.message}\nYou can use web_fetch to visit specific URLs directly.` };
   }
 }

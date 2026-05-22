@@ -8,7 +8,7 @@ import { createReadStream } from 'fs';
 import { Readable } from 'stream';
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: ['http://localhost:3000', 'http://127.0.0.1:3000'] }));
 app.use(express.json({ limit: '10mb' }));
 
 const CONFIG_DIR = path.join(os.homedir(), '.vibe-code');
@@ -234,12 +234,16 @@ async function executeTool(name, args) {
         });
       }
       case 'read_file': {
-        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(process.cwd(), args.file_path);
+        const root = process.cwd();
+        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(root, args.file_path);
+        if (!p.startsWith(root)) return { type: 'error', message: 'Path escapes working directory' };
         const content = await fs.readFile(p, 'utf-8');
         return { type: 'file_read', path: p, content: content.slice(0, 500000), lineCount: content.split('\n').length, truncated: content.length > 500000 };
       }
       case 'write_file': {
-        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(process.cwd(), args.file_path);
+        const root = process.cwd();
+        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(root, args.file_path);
+        if (!p.startsWith(root)) return { type: 'error', message: 'Path escapes working directory' };
         let old = null;
         try { old = await fs.readFile(p, 'utf-8'); } catch {}
         await fs.mkdir(path.dirname(p), { recursive: true });
@@ -247,7 +251,9 @@ async function executeTool(name, args) {
         return { type: 'file_created', path: p, content: args.content, oldContent: old, bytes: Buffer.byteLength(args.content), lineCount: args.content.split('\n').length, isNew: old === null };
       }
       case 'edit_file': {
-        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(process.cwd(), args.file_path);
+        const root = process.cwd();
+        const p = path.isAbsolute(args.file_path) ? args.file_path : path.resolve(root, args.file_path);
+        if (!p.startsWith(root)) return { type: 'error', message: 'Path escapes working directory' };
         const original = await fs.readFile(p, 'utf-8');
         let content = original;
         const blocks = [];
@@ -396,7 +402,7 @@ app.get('/api/files', async (req, res) => {
 app.get('/api/config', async (req, res) => {
   const config = await loadConfig();
   const env = await loadEnv();
-  res.json({ config, env: { OPENAI_API_KEY: env.OPENAI_API_KEY, BASE_URL: env.BASE_URL } });
+  res.json({ config, env: { OPENAI_API_KEY: env.OPENAI_API_KEY ? '••••' + env.OPENAI_API_KEY.slice(-4) : '', BASE_URL: env.BASE_URL } });
 });
 
 app.post('/api/config', async (req, res) => {

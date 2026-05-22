@@ -3,15 +3,20 @@ import path from 'node:path';
 import { FILE_READ_MAX_BYTES } from '../constants.js';
 
 function resolvePath(filePath) {
-  if (path.isAbsolute(filePath)) return filePath;
-  return path.resolve(process.cwd(), filePath);
+  const root = process.cwd();
+  const p = path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath);
+  if (!p.startsWith(root)) {
+    throw new Error(`Path ${p} escapes the current working directory`);
+  }
+  return p;
 }
 
 export async function handleReadFile(args) {
   const { file_path } = args;
   if (!file_path) return { type: 'error', message: 'No file_path provided.' };
 
-  const resolved = resolvePath(file_path);
+  let resolved;
+  try { resolved = resolvePath(file_path); } catch (e) { return { type: 'error', message: e.message }; }
   try {
     const content = await fs.readFile(resolved, 'utf-8');
     const truncated = content.length > FILE_READ_MAX_BYTES;
@@ -35,7 +40,8 @@ export async function handleWriteFile(args) {
   if (!file_path) return { type: 'error', message: 'No file_path provided.' };
   if (content === undefined) return { type: 'error', message: 'No content provided.' };
 
-  const resolved = resolvePath(file_path);
+  let resolved;
+  try { resolved = resolvePath(file_path); } catch (e) { return { type: 'error', message: e.message }; }
   try {
     // Check if file exists before writing
     let oldContent = null;
@@ -66,7 +72,8 @@ export async function handleEditFile(args) {
   if (!file_path) return { type: 'error', message: 'No file_path provided.' };
   if (!diff) return { type: 'error', message: 'No diff provided.' };
 
-  const resolved = resolvePath(file_path);
+  let resolved;
+  try { resolved = resolvePath(file_path); } catch (e) { return { type: 'error', message: e.message }; }
 
   let content;
   try {

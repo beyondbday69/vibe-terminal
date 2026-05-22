@@ -4,3 +4,6 @@ node_modules/
 .DS_Store
 key
 openclaude
+dist/
+*.zip
+.openclaude/

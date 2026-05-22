@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "tsx src/index.js"
+    "start": "tsx src/index.jsx"
   },
   "dependencies": {
     "ink": "^4.0.0",

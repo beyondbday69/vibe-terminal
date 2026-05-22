@@ -59,6 +59,8 @@ export async function listSessions() {
       const data = JSON.parse(raw);
       sessions.push({
         id: data.id,
+        title: data.title,
+        favorite: data.favorite,
         model: data.model,
         savedAt: data.savedAt,
         messageCount: data.messageCount,
