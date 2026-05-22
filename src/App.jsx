@@ -264,11 +264,17 @@ const App = () => {
         setApiKey(finalKey);
       }
 
-      // Load base URL from .env
-      if (env.BASE_URL) {
-        const p = { ...config.provider || DEFAULT_PROVIDER, baseUrl: env.BASE_URL };
+      // Load base URL and models URL from .env
+      if (env.BASE_URL || env.MODELS_URL) {
+        const p = { ...config.provider || DEFAULT_PROVIDER };
+        if (env.BASE_URL) {
+          p.baseUrl = env.BASE_URL;
+          setBaseUrl(env.BASE_URL);
+        }
+        if (env.MODELS_URL) {
+          p.modelsUrl = env.MODELS_URL;
+        }
         setProvider(p);
-        setBaseUrl(env.BASE_URL);
       }
 
       if (config.activeModel) setActiveModel(config.activeModel);
@@ -284,7 +290,8 @@ const App = () => {
     const fetchModels = async () => {
       const modelKey = provider.apiKey || process.env.OPENAI_API_KEY || '';
       try {
-        const res = await fetch(`${provider.baseUrl}/models`, {
+        const modelsUrl = provider.modelsUrl || `${provider.baseUrl}/models`;
+        const res = await fetch(modelsUrl, {
           headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
         });
         const json = await res.json();
@@ -298,7 +305,7 @@ const App = () => {
       }
     };
     fetchModels();
-  }, [provider.baseUrl, provider.apiKey]);
+  }, [provider.baseUrl, provider.apiKey, provider.modelsUrl]);
 
   useInput((inputChar, key) => {
     if (pendingConfirmation) {
@@ -506,12 +513,13 @@ const App = () => {
         const lines = [
           `[Provider] Current: ${provider.name}`,
           `  Base URL: ${provider.baseUrl}`,
+          `  Models URL: ${provider.modelsUrl || '(default: baseUrl/models)'}`,
           `  API Key: ${provider.apiKey ? '****' + provider.apiKey.slice(-4) : '(not set)'}`,
           '',
           'Usage:',
-          '  /provider opencode              - Use opencode.ai (default)',
-          '  /provider nvidia <api_key>      - Use NVIDIA NIM API',
-          '  /provider custom <url> <key>    - Use custom OpenAI-compatible API',
+          '  /provider opencode                       - Use opencode.ai (default)',
+          '  /provider nvidia <api_key>               - Use NVIDIA NIM API',
+          '  /provider custom <url> <key> [models_url]- Use custom OpenAI-compatible API',
         ];
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
       } else if (lowerQuery.startsWith('/provider ')) {
@@ -528,12 +536,17 @@ const App = () => {
         } else if (providerName === 'custom') {
           const url = parts[2] || '';
           const key = parts[3] || '';
+          const modelsUrl = parts[4] || '';
           if (!url) {
-            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /provider custom <base_url> <api_key>' }]);
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /provider custom <base_url> <api_key> [models_url]' }]);
             setInput('');
             return;
           }
           newProvider = { name: 'custom', baseUrl: url, apiKey: key };
+          if (modelsUrl) {
+            newProvider.modelsUrl = modelsUrl;
+            await saveEnv('CUSTOM_MODELS_URL', modelsUrl);
+          }
           if (key) await saveEnv('CUSTOM_API_KEY', key);
           await saveEnv('CUSTOM_BASE_URL', url);
         } else {
@@ -548,11 +561,17 @@ const App = () => {
           await saveEnv('OPENAI_API_KEY', newProvider.apiKey);
         }
         await saveEnv('BASE_URL', newProvider.baseUrl);
+        if (newProvider.modelsUrl) {
+          await saveEnv('MODELS_URL', newProvider.modelsUrl);
+        } else {
+          await saveEnv('MODELS_URL', '');
+        }
         await saveConfig({ provider: newProvider });
         // Fetch models from new provider
         try {
           const modelKey = newProvider.apiKey || process.env.OPENAI_API_KEY || '';
-          const res = await fetch(`${newProvider.baseUrl}/models`, {
+          const modelsUrl = newProvider.modelsUrl || `${newProvider.baseUrl}/models`;
+          const res = await fetch(modelsUrl, {
             headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
           });
           const json = await res.json();
