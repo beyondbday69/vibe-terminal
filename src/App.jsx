@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import os from 'os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { exec } from 'node:child_process';
 
 // Hooks & Utils
 import { useTerminalSize } from './hooks/useTerminalSize.js';
@@ -33,6 +34,16 @@ function stripMarkdown(text) {
   result = result.replace(/^\s*\d+\.\s+/gm, '  ');
   return result;
 }
+
+const getRepoName = (url) => {
+  const trimmed = url.replace(/\/+$/, '');
+  const parts = trimmed.split('/');
+  let name = parts[parts.length - 1] || 'repo';
+  if (name.endsWith('.git')) {
+    name = name.slice(0, -4);
+  }
+  return name;
+};
 import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
 import { listFiles } from './utils/fileList.js';
 import { loadEnv, saveEnv } from './utils/env.js';
@@ -108,6 +119,7 @@ const App = () => {
       setRawInput(String(val).replace(MOUSE_SEQ, ''));
     }
   }, []);
+  const [currentCwd, setCurrentCwd] = useState(process.cwd());
   const [availableModels, setAvailableModels] = useState([]);
   const [activeModel, setActiveModel] = useState('kimi-k2.6');
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
@@ -180,9 +192,8 @@ const App = () => {
     }
   }, [input.startsWith('/resume'), input.startsWith('/delete')]);
 
-  const cwd = process.cwd();
   const homeDir = os.homedir();
-  const displayDir = cwd.startsWith(homeDir) ? cwd.replace(homeDir, '~') : cwd;
+  const displayDir = currentCwd.startsWith(homeDir) ? currentCwd.replace(homeDir, '~') : currentCwd;
 
   // No auto-scroll — user controls position with arrow keys
 
@@ -279,6 +290,12 @@ const App = () => {
       }
 
       if (config.activeModel) setActiveModel(config.activeModel);
+      if (config.activeWorkspace) {
+        try {
+          process.chdir(config.activeWorkspace);
+          setCurrentCwd(config.activeWorkspace);
+        } catch {}
+      }
     })();
   }, []);
 
@@ -484,7 +501,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -880,6 +897,79 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Auto mode toggled. Now: ${next ? 'Ask before edits' : 'Auto execute edits'}` }]);
           return next;
         });
+      } else if (lowerQuery === '/clone') {
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /clone <repo-url>' }]);
+      } else if (lowerQuery.startsWith('/clone ')) {
+        const repoUrl = trimmedQuery.slice(7).trim();
+        if (!repoUrl) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /clone <repo-url>' }]);
+          setInput('');
+          return;
+        }
+
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Preparing to clone/switch workspace...` }]);
+        setIsLoading(true);
+
+        const workspacesDir = path.join(os.homedir(), '.vibe-code', 'workspaces');
+        try {
+          await fs.mkdir(workspacesDir, { recursive: true });
+          const repoName = getRepoName(repoUrl);
+          const targetPath = path.join(workspacesDir, repoName);
+
+          let exists = false;
+          try {
+            const stat = await fs.stat(targetPath);
+            if (stat.isDirectory()) exists = true;
+          } catch {}
+
+          if (exists) {
+            process.chdir(targetPath);
+            setCurrentCwd(targetPath);
+            await saveConfig({ activeWorkspace: targetPath });
+            setMessages(prev => [...prev, { role: 'system', content: `[System] Successfully switched to existing workspace: ${targetPath}` }]);
+            setIsLoading(false);
+          } else {
+            setMessages(prev => [...prev, { role: 'system', content: `[System] Cloning ${repoUrl} to ${targetPath}...` }]);
+            exec(`git clone ${repoUrl} "${targetPath}"`, async (err, stdout, stderr) => {
+              if (err) {
+                setMessages(prev => [...prev, { role: 'system', content: `[Error] Failed to clone workspace: ${stderr || err.message}` }]);
+              } else {
+                try {
+                  process.chdir(targetPath);
+                  setCurrentCwd(targetPath);
+                  await saveConfig({ activeWorkspace: targetPath });
+                  setMessages(prev => [...prev, { role: 'system', content: `[System] Successfully cloned and switched to workspace: ${targetPath}` }]);
+                } catch (e) {
+                  setMessages(prev => [...prev, { role: 'system', content: `[Error] ${e.message}` }]);
+                }
+              }
+              setIsLoading(false);
+            });
+          }
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'system', content: `[Error] ${err.message}` }]);
+          setIsLoading(false);
+        }
+        setInput('');
+        return;
+      } else if (lowerQuery === '/auth') {
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /auth github <token>' }]);
+      } else if (lowerQuery.startsWith('/auth ')) {
+        const parts = trimmedQuery.split(/\s+/);
+        const subCmd = parts[1]?.toLowerCase();
+        const token = parts[2];
+        if (subCmd !== 'github' || !token) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /auth github <token>' }]);
+        } else {
+          try {
+            await saveEnv('GITHUB_TOKEN', token);
+            setMessages(prev => [...prev, { role: 'user', content: '/auth github ****' }, { role: 'system', content: '[System] GitHub token saved to ~/.vibe-code/.env' }]);
+          } catch (err) {
+            setMessages(prev => [...prev, { role: 'user', content: '/auth github ****' }, { role: 'system', content: `[Error] Failed to save GitHub token: ${err.message}` }]);
+          }
+        }
+        setInput('');
+        return;
       } else if (lowerQuery === '/exit') {
         process.exit(0);
       } else {
@@ -897,7 +987,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
+    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code. When you have completed modifying the codebase, you MUST use the git_commit_and_push tool to commit and push your changes to the "agy" branch.' };
 
     try {
       let requiresApiCall = true;

@@ -4,6 +4,8 @@ import chalk from 'chalk';
 
 const COMMANDS = [
   { cmd: '/help', desc: 'Show help' },
+  { cmd: '/clone', desc: 'Clone repository to switch workspace' },
+  { cmd: '/auth', desc: 'Set GitHub token for git pushing' },
   { cmd: '/model', desc: 'Select model' },
   { cmd: '/apikey', desc: 'Set API key' },
   { cmd: '/provider', desc: 'Switch provider' },

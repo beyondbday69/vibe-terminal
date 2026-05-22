@@ -9,6 +9,7 @@ import {
 import { handleCronCreate, handleCronDelete, handleCronList } from './handlers/cron.js';
 import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop } from './handlers/agents.js';
 import { handleConceptual } from './handlers/conceptual.js';
+import { handleGitCommitAndPush } from './handlers/git.js';
 
 const HANDLERS = {
   run_bash: handleRunBash,
@@ -32,6 +33,7 @@ const HANDLERS = {
   agent_list: handleAgentList,
   agent_get: handleAgentGet,
   agent_stop: handleAgentStop,
+  git_commit_and_push: handleGitCommitAndPush,
   ask_user_question: handleConceptual,
   enter_plan_mode: handleConceptual,
   exit_plan_mode: handleConceptual,

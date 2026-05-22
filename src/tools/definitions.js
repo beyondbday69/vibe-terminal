@@ -20,6 +20,7 @@ export const toolsDefinition = [
   { type: "function", function: { name: "agent_list", description: "List all active sub-agents and their status." } },
   { type: "function", function: { name: "agent_get", description: "Get detailed status and results of a specific agent.", parameters: { type: "object", properties: { agent_id: { type: "string", description: "Agent ID (e.g. agent_1)" } }, required: ["agent_id"] } } },
   { type: "function", function: { name: "agent_stop", description: "Stop a running agent.", parameters: { type: "object", properties: { agent_id: { type: "string", description: "Agent ID to stop" } }, required: ["agent_id"] } } },
+  { type: "function", function: { name: "git_commit_and_push", description: "Stage all changes, commit them with a message, and push to the 'agy' branch on GitHub.", parameters: { type: "object", properties: { commit_message: { type: "string", description: "Commit message describing the changes made." } }, required: ["commit_message"] } } },
   { type: "function", function: { name: "ask_user_question", description: "Prompt the user for clarification or input.", parameters: { type: "object", properties: { question: { type: "string", description: "Question to ask the user" } }, required: ["question"] } } },
   { type: "function", function: { name: "enter_plan_mode", description: "Start planning a complex multi-step execution." } },
   { type: "function", function: { name: "exit_plan_mode", description: "Finish planning and commit to execution." } },

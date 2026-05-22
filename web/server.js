@@ -372,6 +372,57 @@ async function executeTool(name, args) {
         agent.status = 'stopped';
         return { type: 'generic', message: `Agent ${agent_id} stopped.` };
       }
+      case 'git_commit_and_push': {
+        const { commit_message } = args;
+        if (!commit_message) return { type: 'error', message: 'No commit_message provided.' };
+        const cwd = process.cwd();
+        const execPromise = (cmd) => new Promise((resolve, reject) => {
+          exec(cmd, { cwd, timeout: 60000 }, (err, stdout, stderr) => {
+            if (err) reject(new Error(stderr.trim() || err.message));
+            else resolve(stdout.trim());
+          });
+        });
+        try {
+          try {
+            await execPromise('git rev-parse --is-inside-work-tree');
+          } catch {
+            return { type: 'error', message: `Directory ${cwd} is not a git repository.` };
+          }
+          try {
+            await execPromise('git checkout agy');
+          } catch {
+            await execPromise('git checkout -b agy');
+          }
+          await execPromise('git add .');
+          const status = await execPromise('git status --porcelain');
+          if (status) {
+            await execPromise(`git commit -m "${commit_message.replace(/"/g, '\\"')}"`);
+          }
+          const env = await loadEnv();
+          const token = env.GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+          const rawUrl = await execPromise('git remote get-url origin');
+          let pushUrl = rawUrl;
+          if (token && rawUrl.startsWith('https://')) {
+            const rest = rawUrl.slice(8);
+            const atIdx = rest.indexOf('@');
+            if (atIdx !== -1) {
+              pushUrl = `https://${token}@${rest.slice(atIdx + 1)}`;
+            } else {
+              pushUrl = `https://${token}@${rest}`;
+            }
+          }
+          try {
+            await execPromise(`git push -u "${pushUrl}" agy`);
+          } catch (pushErr) {
+            let errMsg = pushErr.message;
+            if (token) errMsg = errMsg.replaceAll(token, '****');
+            throw new Error(`Failed to push to GitHub: ${errMsg}`);
+          }
+          return { type: 'git_push_result', success: true, message: `Successfully committed and pushed to branch 'agy'.` };
+        } catch (err) {
+          return { type: 'error', message: err.message };
+        }
+      }
       default: return { type: 'generic', message: `Tool ${name} not implemented.` };
     }
   } catch (e) { return { type: 'error', message: e.message }; }
@@ -402,7 +453,12 @@ app.get('/api/files', async (req, res) => {
 app.get('/api/config', async (req, res) => {
   const config = await loadConfig();
   const env = await loadEnv();
-  res.json({ config, env: { OPENAI_API_KEY: env.OPENAI_API_KEY ? '••••' + env.OPENAI_API_KEY.slice(-4) : '', BASE_URL: env.BASE_URL } });
+  res.json({
+    config,
+    env: { OPENAI_API_KEY: env.OPENAI_API_KEY ? '••••' + env.OPENAI_API_KEY.slice(-4) : '', BASE_URL: env.BASE_URL },
+    cwd: process.cwd(),
+    home: os.homedir(),
+  });
 });
 
 app.post('/api/config', async (req, res) => {
@@ -414,6 +470,57 @@ app.post('/api/env', async (req, res) => {
   const { key, value } = req.body;
   await saveEnv(key, value);
   res.json({ ok: true });
+});
+
+app.post('/api/clone', async (req, res) => {
+  const { repoUrl } = req.body;
+  if (!repoUrl) {
+    return res.status(400).json({ error: 'No repoUrl provided' });
+  }
+  try {
+    const workspacesDir = path.join(os.homedir(), '.vibe-code', 'workspaces');
+    await fs.mkdir(workspacesDir, { recursive: true });
+
+    const getRepoName = (url) => {
+      const trimmed = url.replace(/\/+$/, '');
+      const parts = trimmed.split('/');
+      let name = parts[parts.length - 1] || 'repo';
+      if (name.endsWith('.git')) {
+        name = name.slice(0, -4);
+      }
+      return name;
+    };
+
+    const repoName = getRepoName(repoUrl);
+    const targetPath = path.join(workspacesDir, repoName);
+
+    let exists = false;
+    try {
+      const stat = await fs.stat(targetPath);
+      if (stat.isDirectory()) exists = true;
+    } catch {}
+
+    if (exists) {
+      process.chdir(targetPath);
+      await saveConfig({ activeWorkspace: targetPath });
+      res.json({ ok: true, path: targetPath, exists: true });
+    } else {
+      exec(`git clone ${repoUrl} "${targetPath}"`, async (err, stdout, stderr) => {
+        if (err) {
+          return res.status(500).json({ error: stderr || err.message });
+        }
+        try {
+          process.chdir(targetPath);
+          await saveConfig({ activeWorkspace: targetPath });
+          res.json({ ok: true, path: targetPath, exists: false });
+        } catch (e) {
+          res.status(500).json({ error: e.message });
+        }
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/models', async (req, res) => {
@@ -436,7 +543,7 @@ app.post('/api/chat', async (req, res) => {
   const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN', modelsUrl: 'https://opencode.ai/zen/go/v1/models' };
   const key = provider.apiKey || env.OPENAI_API_KEY || '';
 
-  const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
+  const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code. When you have completed modifying the codebase, you MUST use the git_commit_and_push tool to commit and push your changes to the "agy" branch.' };
   const apiMessages = [systemPrompt, ...messages.filter(m => m.role !== 'system' && m.role !== 'tool_call')];
 
   const headers = { 'Content-Type': 'application/json' };
@@ -536,4 +643,15 @@ app.post('/api/checkpoints', async (req, res) => {
 });
 
 const PORT = 3001;
-app.listen(PORT, () => console.log(`Vibe Code server on port ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`Vibe Code server on port ${PORT}`);
+  try {
+    const config = await loadConfig();
+    if (config.activeWorkspace) {
+      process.chdir(config.activeWorkspace);
+      console.log(`Restored active workspace: ${config.activeWorkspace}`);
+    }
+  } catch (err) {
+    console.error(`Failed to restore active workspace: ${err.message}`);
+  }
+});

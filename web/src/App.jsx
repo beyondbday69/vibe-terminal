@@ -18,9 +18,10 @@ const TOOLS = [
   { type: 'function', function: { name: 'agent_list', description: 'List all active sub-agents and their status.' } },
   { type: 'function', function: { name: 'agent_get', description: 'Get detailed status and results of a specific agent.', parameters: { type: 'object', properties: { agent_id: { type: 'string', description: 'Agent ID (e.g. agent_1)' } }, required: ['agent_id'] } } },
   { type: 'function', function: { name: 'agent_stop', description: 'Stop a running agent.', parameters: { type: 'object', properties: { agent_id: { type: 'string', description: 'Agent ID to stop' } }, required: ['agent_id'] } } },
+  { type: 'function', function: { name: 'git_commit_and_push', description: 'Commit all changes in the active workspace and push them automatically to the "agy" branch.', parameters: { type: 'object', properties: { commit_message: { type: 'string', description: 'Commit message describing the changes' } }, required: ['commit_message'] } } },
 ];
 
-const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit', '/agents', '/attach'];
+const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit', '/agents', '/attach', '/clone', '/auth'];
 
 const AGENT_COLORS = [
   'red', 'green', 'yellow', 'blue', 'magenta',
@@ -1321,6 +1322,9 @@ export default function App() {
   const [askBeforeEdits, setAskBeforeEdits] = useState(true);
   const confirmationResolverRef = useRef(null);
 
+  const [currentCwd, setCurrentCwd] = useState('');
+  const [homeDir, setHomeDir] = useState('');
+
   const confirmTool = useCallback(() => {
     if (confirmationResolverRef.current) {
       confirmationResolverRef.current({ approved: true });
@@ -1340,9 +1344,12 @@ export default function App() {
     (async () => {
       try {
         const r = await fetch('/api/config');
-        const { config, env } = await r.json();
+        const { config, env, cwd, home } = await r.json();
         if (config.provider) setProvider(config.provider);
         if (config.activeModel) setActiveModel(config.activeModel);
+        if (config.activeWorkspace) setCurrentCwd(config.activeWorkspace);
+        else if (cwd) setCurrentCwd(cwd);
+        if (home) setHomeDir(home);
       } catch {}
       try {
         const r = await fetch('/api/models');
@@ -1466,7 +1473,7 @@ export default function App() {
 
       while (requiresLoop && !controller.signal.aborted) {
         const apiMsgs = conversation.filter(m => m.role !== 'tool_call');
-        const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
+        const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code. When you have completed modifying the codebase, you MUST use the git_commit_and_push tool to commit and push your changes to the "agy" branch.' };
 
         const res = await fetch('/api/chat', {
           method: 'POST',
@@ -1640,7 +1647,7 @@ export default function App() {
 
     if (lower === '/help') {
       setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content:
-        `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open model selector\n  /model <id>   - Switch model\n  /apikey <key> - Set API key\n  /provider     - Provider settings\n  /clear        - Clear chat\n  /init         - Create CLAUDE.md\n  /resume       - Resume session\n  /save         - Save session\n  /agents       - Show agents\n  /exit         - (web: close tab)\n\nCtrl+M: model selector\nCtrl+A: agents panel\nCtrl+F: attach files` }]);
+        `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open model selector\n  /model <id>   - Switch model\n  /apikey <key> - Set API key\n  /provider     - Provider settings\n  /clear        - Clear chat\n  /init         - Create CLAUDE.md\n  /resume       - Resume session\n  /save         - Save session\n  /agents       - Show agents\n  /clone <url>  - Clone a git repository and switch workspace\n  /auth github <token> - Set GitHub token for git pushing\n  /exit         - (web: close tab)\n\nCtrl+M: model selector\nCtrl+A: agents panel\nCtrl+F: attach files` }]);
     } else if (lower === '/model') {
       setShowModelSelector(true);
     } else if (lower.startsWith('/model ')) {
@@ -1710,6 +1717,55 @@ export default function App() {
     } else if (lower === '/attach') {
       loadCodebaseFiles();
       setShowFilePicker(true);
+    } else if (lower.startsWith('/clone')) {
+      const parts = trim.split(/\s+/);
+      const url = parts[1];
+      if (!url) {
+        setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: '[Error] Usage: /clone <repo-url>' }]);
+        return;
+      }
+      setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: `[System] Cloning repository ${url}...` }]);
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/clone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoUrl: url }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentCwd(data.path);
+          setMessages(prev => [...prev, { role: 'system', content: `[System] Successfully ${data.exists ? 'switched to existing' : 'cloned and switched to'} workspace: ${data.path}` }]);
+          // Refresh files list
+          setTimeout(() => {
+            loadCodebaseFiles().catch(() => {});
+          }, 500);
+        } else {
+          setMessages(prev => [...prev, { role: 'system', content: `[Error] ${data.error || 'Failed to clone/switch workspace.'}` }]);
+        }
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'system', content: `[Error] ${e.message}` }]);
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (lower.startsWith('/auth ')) {
+      const parts = trim.split(/\s+/);
+      const type = parts[1]?.toLowerCase();
+      const token = parts[2];
+      if (type !== 'github' || !token) {
+        setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: '[Error] Usage: /auth github <token>' }]);
+        return;
+      }
+      try {
+        await fetch('/api/env', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'GITHUB_TOKEN', value: token }),
+        });
+        setMessages(prev => [...prev, { role: 'user', content: '/auth github ****' }, { role: 'system', content: 'GitHub token saved successfully.' }]);
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'user', content: '/auth github ****' }, { role: 'system', content: `[Error] Failed to save GitHub token: ${e.message}` }]);
+      }
     } else {
       setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: `Unknown command: ${cmd}` }]);
     }
@@ -1875,7 +1931,13 @@ export default function App() {
 
       {/* Footer */}
       <div className="footer">
-        <span className="dir">~/vibe-terminal</span>
+        <span className="dir">{(() => {
+          const dir = currentCwd || '~/vibe-terminal';
+          if (homeDir && dir.startsWith(homeDir)) {
+            return dir.replace(homeDir, '~');
+          }
+          return dir;
+        })()}</span>
         <span className="meta">
           Model: <span className="accent">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</span>
           {'  \u2022  '}Tools Loaded: {TOOLS.length}
@@ -1956,6 +2018,7 @@ function getCommandDesc(cmd) {
     '/provider': 'Switch provider', '/rewind': 'Rewind to checkpoint', '/branch': 'Fork from checkpoint',
     '/clear': 'Clear chat', '/init': 'Create CLAUDE.md', '/resume': 'Resume session',
     '/delete': 'Delete session', '/exit': 'Exit app', '/agents': 'Show agents', '/attach': 'Attach files',
+    '/clone': 'Clone git repository', '/auth': 'Authenticate github token',
   };
   return descs[cmd] || '';
 }
