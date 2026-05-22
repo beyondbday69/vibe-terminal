@@ -22,9 +22,9 @@ export const ToolConfirmation = ({ name, args, termWidth }) => {
   }
 
   return (
-    <Box flexDirection="column" borderStyle="double" borderColor="#facc15" paddingX={2} paddingY={1} width={boxWidth}>
+    <Box flexDirection="column" borderStyle="double" borderColor="#FBBF24" paddingX={2} paddingY={1} width={boxWidth}>
       <Box marginBottom={1}>
-        <Text bold color="#facc15">⚠️  Confirm Action: {name}</Text>
+        <Text bold color="#FBBF24">⚠️  Confirm Action: {name}</Text>
       </Box>
 
       {filepath ? (
@@ -42,9 +42,9 @@ export const ToolConfirmation = ({ name, args, termWidth }) => {
 
       <Box>
         <Text bold>Approve execution? </Text>
-        <Text color="#22c55e" bold>[Y]es (Enter)</Text>
+        <Text color="#3ECF8E" bold>[Y]es (Enter)</Text>
         <Text> / </Text>
-        <Text color="#ef4444" bold>[N]o (Esc)</Text>
+        <Text color="#EF4444" bold>[N]o (Esc)</Text>
       </Box>
     </Box>
   );

@@ -39,8 +39,8 @@ function formatToolRunning(funcName) {
 
 function formatError(result, funcName, termWidth) {
   return [
-    { type: 'tool_status', icon: '✗', color: '#ef4444', content: funcName || 'error' },
-    { type: 'tool_content', content: indent(chalk.red(result.message)), color: '#ef4444' },
+    { type: 'tool_status', icon: '✗', color: '#EF4444', content: funcName || 'error' },
+    { type: 'tool_content', content: indent(chalk.red(result.message)), color: '#EF4444' },
   ];
 }
 
@@ -51,7 +51,7 @@ function formatFileCreated(result, termWidth) {
   lines.push({
     type: 'tool_status',
     icon: '✓',
-    color: '#22c55e',
+    color: '#3ECF8E',
     content: `write_file`,
     detail: chalk.hex('#737373')(`${relPath}  ${result.lineCount} lines • ${result.bytes} bytes`),
   });
@@ -95,7 +95,7 @@ function formatFileRead(result, termWidth) {
   lines.push({
     type: 'tool_status',
     icon: '✓',
-    color: '#22c55e',
+    color: '#3ECF8E',
     content: `read_file`,
     detail: chalk.hex('#D77757')(`[${relPath}]`) + chalk.hex('#737373')(`  ${result.lineCount} lines`),
   });
@@ -119,7 +119,7 @@ function formatFileEdited(result, termWidth) {
   lines.push({
     type: 'tool_status',
     icon: '✓',
-    color: '#22c55e',
+    color: '#3ECF8E',
     content: `edit_file`,
     detail: chalk.hex('#737373')(`${relPath}  ${result.blockCount} block(s)`),
   });
@@ -155,7 +155,7 @@ function formatBashResult(result, termWidth) {
   const lines = [];
   const success = result.exitCode === 0 && !result.timedOut;
   const icon = success ? '✓' : '✗';
-  const iconColor = success ? '#22c55e' : '#ef4444';
+  const iconColor = success ? '#3ECF8E' : '#EF4444';
 
   lines.push({
     type: 'tool_status',
@@ -206,7 +206,7 @@ function formatAgentSpawned(result, termWidth) {
 function formatGenericResult(result, funcName, termWidth) {
   const msg = result.message || String(result);
   const lines = [];
-  lines.push({ type: 'tool_status', icon: '✓', color: '#22c55e', content: funcName });
+  lines.push({ type: 'tool_status', icon: '✓', color: '#3ECF8E', content: funcName });
   msg.split('\n').forEach(l => {
     lines.push({ type: 'tool_content', content: indent(chalk.hex('#a3a3a3')(truncateLine(l, termWidth - 6))) });
   });

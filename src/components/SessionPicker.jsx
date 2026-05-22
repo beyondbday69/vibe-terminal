@@ -84,7 +84,7 @@ export const SessionPicker = ({ sessions, onSelect, onDelete, onFav, onClose, te
             if (isConfirming) {
               return (
                 <Box key={session.id} marginTop={1}>
-                  <Text color="#ef4444">Delete "{title}"? ENTER=yes  ESC=no</Text>
+                  <Text color="#EF4444">Delete "{title}"? ENTER=yes  ESC=no</Text>
                 </Box>
               );
             }

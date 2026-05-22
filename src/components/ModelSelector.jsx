@@ -75,7 +75,7 @@ export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidt
         <Box flexDirection="column" marginBottom={1}>
           <Box>
             <Text color="#a3a3a3">Search:  </Text>
-            <Text bold color="#facc15">{searchQuery}</Text>
+            <Text bold color="#FBBF24">{searchQuery}</Text>
             <Text color="#525252">_</Text>
           </Box>
           <Box>
@@ -87,7 +87,7 @@ export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidt
         <Box flexDirection="column" marginTop={1}>
           {filteredModels.length === 0 ? (
             <Box paddingX={1}>
-              <Text color="#ef4444">No models match "{searchQuery}"</Text>
+              <Text color="#EF4444">No models match "{searchQuery}"</Text>
             </Box>
           ) : (
             visibleModels.map((model, i) => {
@@ -99,7 +99,7 @@ export const ModelSelector = ({ models, activeModel, onSelect, onClose, termWidt
                   <Text bold={isSelected} color={isSelected ? '#D77757' : isActive ? '#0ea5e9' : '#d4d4d4'}>
                     {isSelected ? '> ' : '  '}
                     {model}
-                    {isActive && <Text color="#22c55e">  [active]</Text>}
+                    {isActive && <Text color="#3ECF8E">  [active]</Text>}
                   </Text>
                 </Box>
               );

@@ -831,7 +831,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       } else if (lowerQuery === '/auto') {
         setAskBeforeEdits(prev => {
           const next = !prev;
-          setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Auto mode toggled. Now: ${next ? 'Ask before edits (interactive)' : 'Auto execute edits (autonomous)'}` }]);
+          setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Auto mode toggled. Now: ${next ? 'Ask before edits' : 'Auto execute edits'}` }]);
           return next;
         });
       } else if (lowerQuery === '/exit') {
@@ -1063,7 +1063,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           allLines.push({
             type: 'tool_status',
             icon: '⚠️',
-            color: '#facc15',
+            color: '#FBBF24',
             content: `${msg.name} (pending confirmation...)`,
           });
         } else {
@@ -1151,12 +1151,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   if (showAgentDetail) {
     const agent = showAgentDetail;
     const age = Math.round((Date.now() - agent.createdAt) / 1000);
-    const borderColor = agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#22c55e' : '#ef4444';
+    const borderColor = agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#3ECF8E' : '#EF4444';
     return (
       <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
         <Box borderStyle="single" borderColor={borderColor} flexDirection="column" paddingX={2} paddingY={1} width={Math.min(termWidth - 4, 90)}>
           <Text bold color="white">Agent {agent.id}</Text>
-          <Text color="#a3a3a3">Status: <Text bold color={agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#22c55e' : '#ef4444'}>{agent.status}</Text></Text>
+          <Text color="#a3a3a3">Status: <Text bold color={agent.status === 'running' ? '#D77757' : agent.status === 'completed' ? '#3ECF8E' : '#EF4444'}>{agent.status}</Text></Text>
           <Text color="#a3a3a3">Goal: {chalk.white(agent.goal)}</Text>
           <Text color="#a3a3a3">Steps: {agent.iterations}  |  Time: {age}s</Text>
           {agent.lastActionDetail && <Text color="#a3a3a3">Last: {chalk.hex('#D77757')(agent.lastActionDetail)}</Text>}
@@ -1170,14 +1170,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           )}
           {agent.result && (
             <Box flexDirection="column" marginTop={1}>
-              <Text bold color="#22c55e">Result:</Text>
+              <Text bold color="#3ECF8E">Result:</Text>
               <Text color="white">{agent.result}</Text>
             </Box>
           )}
           {agent.error && (
             <Box flexDirection="column" marginTop={1}>
-              <Text bold color="#ef4444">Error:</Text>
-              <Text color="#ef4444">{agent.error}</Text>
+              <Text bold color="#EF4444">Error:</Text>
+              <Text color="#EF4444">{agent.error}</Text>
             </Box>
           )}
           <Box marginTop={1}>
@@ -1214,7 +1214,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               </Box>
             );
           } else if (line.type === 'system') {
-            return <Text key={i} color="#facc15">{line.content}</Text>;
+            return <Text key={i} color="#FBBF24">{line.content}</Text>;
           } else if (line.type === 'assistant') {
             if (!line.content) return null;
             return <Text key={i} bold color="white">{line.isFirst ? '• ' : '  '}{line.content}</Text>;
@@ -1273,7 +1273,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         <Text bold color="white">{displayDir}</Text>
         <Box>
           <Text color="#a3a3a3">Mode: </Text>
-          <Text bold color={askBeforeEdits ? '#facc15' : '#22c55e'}>{askBeforeEdits ? 'Interactive' : 'Auto-Execute'}</Text>
+          <Text bold color={askBeforeEdits ? '#D77757' : '#666666'}>{askBeforeEdits ? 'Ask before edits' : 'Auto execute edits'}</Text>
           <Text color="#a3a3a3">  •  Model: </Text>
           <Text color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text>
           <Text color="#a3a3a3">  •  Tools: {toolsDefinition.length}</Text>
