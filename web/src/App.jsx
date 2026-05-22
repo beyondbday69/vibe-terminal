@@ -1251,9 +1251,21 @@ function ChatMessage({ msg, onConfirm, onReject }) {
   }
   if (msg.role === 'assistant') {
     const parts = parseAssistantContent(msg.content || '');
-    if (parts.length === 0) return null;
+    const hasReasoning = !!msg.reasoning_content;
+    if (parts.length === 0 && !hasReasoning) return null;
     return (
       <div className="msg-assistant-wrapper">
+        {hasReasoning && (
+          <div className="thinking-block">
+            <div className="thinking-header">
+              <span className="thinking-icon">💭</span>
+              <span className="thinking-title">Thinking Process</span>
+            </div>
+            <div className="thinking-content">
+              {msg.reasoning_content}
+            </div>
+          </div>
+        )}
         {parts.map((part, i) => {
           if (part.type === 'code') {
             const code = part.content;
@@ -1470,9 +1482,9 @@ export default function App() {
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = '', streamed = '', toolCalls = [];
+        let buffer = '', streamed = '', streamedReasoning = '', toolCalls = [];
 
-        conversation = [...conversation, { role: 'assistant', content: '' }];
+        conversation = [...conversation, { role: 'assistant', content: '', reasoning_content: '' }];
         setMessages([...conversation]);
 
         while (!controller.signal.aborted) {
@@ -1490,9 +1502,21 @@ export default function App() {
             try { parsed = JSON.parse(d); } catch { continue; }
             const delta = parsed.choices?.[0]?.delta;
             if (!delta) continue;
+            let updated = false;
+            if (delta.reasoning_content) {
+              streamedReasoning += delta.reasoning_content;
+              updated = true;
+            }
             if (delta.content) {
               streamed += delta.content;
-              conversation[conversation.length - 1] = { role: 'assistant', content: streamed };
+              updated = true;
+            }
+            if (updated) {
+              conversation[conversation.length - 1] = {
+                role: 'assistant',
+                content: streamed,
+                reasoning_content: streamedReasoning
+              };
               setMessages([...conversation]);
             }
             if (delta.tool_calls) {
@@ -1509,6 +1533,7 @@ export default function App() {
 
         const respMsg = { role: 'assistant' };
         if (streamed) respMsg.content = streamed;
+        if (streamedReasoning) respMsg.reasoning_content = streamedReasoning;
         if (toolCalls.length) respMsg.tool_calls = toolCalls;
         conversation[conversation.length - 1] = respMsg;
 

@@ -1460,3 +1460,42 @@ body {
 .prompt-input::placeholder {
   color: var(--text-muted);
 }
+
+/* ── Thinking Block ────────────────────────────────────────────────────────── */
+.thinking-block {
+  background: var(--bg-light);
+  border-left: 2px solid var(--text-muted);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.thinking-icon {
+  font-size: 14px;
+}
+
+.thinking-title {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.thinking-content {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}

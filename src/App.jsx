@@ -731,10 +731,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               const choice = parsed.choices?.[0];
               if (!choice) continue;
               const delta = choice.delta || {};
-              if (delta.reasoning_content) streamedReasoning += delta.reasoning_content;
+              let updated = false;
+              if (delta.reasoning_content) {
+                streamedReasoning += delta.reasoning_content;
+                updated = true;
+              }
               if (delta.content) {
                 streamedContent += delta.content;
-                conversation[conversation.length - 1] = { role: 'assistant', content: streamedContent };
+                updated = true;
+              }
+              if (updated) {
+                conversation[conversation.length - 1] = {
+                  role: 'assistant',
+                  content: streamedContent,
+                  reasoning_content: streamedReasoning
+                };
                 setMessages([...conversation]);
               }
               if (delta.tool_calls) {
@@ -808,10 +819,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                   const choice = parsed.choices?.[0];
                   if (!choice) continue;
                   const delta = choice.delta || {};
-                  if (delta.reasoning_content) reasoning2 += delta.reasoning_content;
+                  let updated = false;
+                  if (delta.reasoning_content) {
+                    reasoning2 += delta.reasoning_content;
+                    updated = true;
+                  }
                   if (delta.content) {
                     streamed2 += delta.content;
-                    conversation[conversation.length - 1] = { role: 'assistant', content: streamed2 };
+                    updated = true;
+                  }
+                  if (updated) {
+                    conversation[conversation.length - 1] = {
+                      role: 'assistant',
+                      content: streamed2,
+                      reasoning_content: reasoning2
+                    };
                     setMessages([...conversation]);
                   }
                   if (delta.tool_calls) {
@@ -930,14 +952,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
             const delta = choice.delta || {};
 
-            // Capture DeepSeek reasoning_content
+            let updated = false;
             if (delta.reasoning_content) {
               streamedReasoning += delta.reasoning_content;
+              updated = true;
             }
-
             if (delta.content) {
               streamedContent += delta.content;
-              conversation[conversation.length - 1] = { role: 'assistant', content: streamedContent };
+              updated = true;
+            }
+            if (updated) {
+              conversation[conversation.length - 1] = {
+                role: 'assistant',
+                content: streamedContent,
+                reasoning_content: streamedReasoning
+              };
               setMessages([...conversation]);
             }
 
@@ -1104,9 +1133,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         const wrapped = wrapText(msg.content, usableWidth);
         wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
       } else {
+        if (msg.reasoning_content) {
+          const cleanReasoning = stripMarkdown(msg.reasoning_content);
+          const wrappedReasoning = wrapText(cleanReasoning, usableWidth - 4);
+          allLines.push({ type: 'reasoning_header', content: '💭 Thinking Process:' });
+          wrappedReasoning.forEach((line) => {
+            allLines.push({
+              type: 'reasoning',
+              content: line
+            });
+          });
+        }
         const cleanContent = stripMarkdown(msg.content || '');
-        const wrapped = wrapText(cleanContent, usableWidth - 2);
-        wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
+        if (cleanContent) {
+          const wrapped = wrapText(cleanContent, usableWidth - 2);
+          wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
+        }
       }
       allLines.push({ type: 'spacer' });
     });
@@ -1234,6 +1276,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             );
           } else if (line.type === 'system') {
             return <Text key={i} color="#FBBF24">{line.content}</Text>;
+          } else if (line.type === 'reasoning_header') {
+            return <Text key={i} color="#666666" bold>{line.content}</Text>;
+          } else if (line.type === 'reasoning') {
+            return <Text key={i} color="#666666" italic>  {line.content}</Text>;
           } else if (line.type === 'assistant') {
             if (!line.content) return null;
             return <Text key={i} bold color="white">{line.isFirst ? '• ' : '  '}{line.content}</Text>;
