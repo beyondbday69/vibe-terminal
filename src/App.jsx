@@ -139,6 +139,7 @@ const App = () => {
   const [fileList, setFileList] = useState([]);
   const [checkpointList, setCheckpointList] = useState([]);
   const [showThinking, setShowThinking] = useState(true);
+  const [tokenUsage, setTokenUsage] = useState({ used: 0, limit: 128000 });
 
   // Load files when @ is typed
   useEffect(() => {
@@ -612,6 +613,7 @@ const App = () => {
         setMessages([]);
         setSessionId(null);
         setChatScroll(0);
+        setTokenUsage({ used: 0, limit: 128000 });
         // Clear entire terminal including scrollback
         process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
       } else if (lowerQuery === '/rewind') {
@@ -725,6 +727,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               messages: apiMessages,
               tools: toolsDefinition,
               stream: true,
+              stream_options: { include_usage: true },
             }),
           });
           if (!res.ok) {
@@ -752,6 +755,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               if (data === '[DONE]') continue;
               let parsed;
               try { parsed = JSON.parse(data); } catch { continue; }
+              if (parsed.usage) {
+                setTokenUsage(prev => ({ ...prev, used: parsed.usage.total_tokens || prev.used }));
+              }
               const choice = parsed.choices?.[0];
               if (!choice) continue;
               const delta = choice.delta || {};
@@ -820,7 +826,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                   'Content-Type': 'application/json',
                   ...(provider.apiKey || process.env.OPENAI_API_KEY ? { 'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY}` } : {}),
                 },
-                body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: toolsDefinition, stream: true }),
+                body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: toolsDefinition, stream: true, stream_options: { include_usage: true } }),
               });
               if (!res2.ok) throw new Error(`${res2.status} API Error`);
               const reader2 = res2.body.getReader();
@@ -840,6 +846,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                   if (data === '[DONE]') continue;
                   let parsed;
                   try { parsed = JSON.parse(data); } catch { continue; }
+                  if (parsed.usage) {
+                    setTokenUsage(prev => ({ ...prev, used: parsed.usage.total_tokens || prev.used }));
+                  }
                   const choice = parsed.choices?.[0];
                   if (!choice) continue;
                   const delta = choice.delta || {};
@@ -1009,6 +1018,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             messages: apiMessages,
             tools: toolsDefinition,
             stream: true,
+            stream_options: { include_usage: true },
           }),
         });
 
@@ -1043,6 +1053,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
             let parsed;
             try { parsed = JSON.parse(data); } catch { continue; }
+
+            if (parsed.usage) {
+              setTokenUsage(prev => ({ ...prev, used: parsed.usage.total_tokens || prev.used }));
+            }
 
             const choice = parsed.choices?.[0];
             if (!choice) continue;
@@ -1441,8 +1455,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           <Text color="#a3a3a3">Mode: </Text>
           <Text bold color={askBeforeEdits ? '#D77757' : '#666666'}>{askBeforeEdits ? 'Ask before edits' : 'Auto execute edits'}</Text>
           <Text color="#a3a3a3">  •  Model: </Text>
-          <Text color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text>
-          <Text color="#a3a3a3">  •  Tools: {toolsDefinition.length}</Text>
+          <Text color="#D77757">{activeModel.length > 20 ? activeModel.slice(0, 20) + '..' : activeModel}</Text>
+          <Text color="#a3a3a3">  •  </Text>
+          <Text color={tokenUsage.used > tokenUsage.limit * 0.8 ? '#EF4444' : tokenUsage.used > tokenUsage.limit * 0.5 ? '#FBBF24' : '#3ECF8E'}>{(tokenUsage.used / 1000).toFixed(1)}k</Text>
+          <Text color="#666666">/{(tokenUsage.limit / 1000).toFixed(0)}k ctx</Text>
         </Box>
       </Box>
     </Box>
