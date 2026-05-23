@@ -1,0 +1,418 @@
+# CLI Coding Agent — Design & System Prompt
+
+---
+
+## UI Design System
+
+### Colour Palette
+
+```
+Background:     #0d0d0d  (near black, not pure)
+Surface:        #141414  (cards, panels)
+Border:         #2a2a2a  (subtle dividers)
+Text Primary:   #f0f0f0  (main text, near white)
+Text Secondary: #888888  (labels, hints)
+Text Muted:     #444444  (timestamps, metadata)
+
+Syntax — light, readable, not saturated:
+  Keywords:     #7eb8f7  (soft blue)
+  Strings:      #98c99a  (soft green)
+  Numbers:      #d4a574  (soft amber)
+  Comments:     #5a5a5a  (grey, muted)
+  Functions:    #c9a8f5  (soft lavender)
+  Types:        #7ec8c8  (soft teal)
+  Operators:    #e0e0e0  (near white)
+
+Diff colours:
+  Added line:   #1a2e1a  bg  +  #6db86d  text
+  Removed line: #2e1a1a  bg  +  #c97070  text
+  Hunk header:  #1a1e2e  bg  +  #6a8abf  text
+  Line numbers: #383838  text
+
+Agent role colours (muted, not neon):
+  Orchestrator: #7eb8f7  (blue)
+  Designer:     #c9a8f5  (lavender)
+  Backend:      #7ec8c8  (teal)
+  Researcher:   #d4a574  (amber)
+  Reviewer:     #98c99a  (green)
+
+Status indicators:
+  Running:      #d4a574  (amber)
+  Done:         #98c99a  (green)
+  Error:        #c97070  (red)
+  Idle:         #444444  (muted)
+```
+
+---
+
+## UI Layout
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ◆ agent                                         kimi-k2.6  |  solo  │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─ assistant ───────────────────────────────────────────────────┐   │
+│  │                                                               │   │
+│  │  Reading src/core/agent.js...                                 │   │
+│  │                                                               │   │
+│  │  I found the issue in the loop. The stream flag is missing.   │   │
+│  │  Editing the file now.                                        │   │
+│  │                                                               │   │
+│  └───────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌─ edit · src/core/agent.js ────────────────────────────────────┐   │
+│  │  @@ -14,6 +14,8 @@                                            │   │
+│  │   14    async function runLoop(messages) {                    │   │
+│  │ - 15  -   const res = await llm.complete(messages)            │   │
+│  │ + 15  +   const res = await llm.complete(messages, {          │   │
+│  │ + 16  +     stream: true                                      │   │
+│  │ + 17  +   })                                                  │   │
+│  │   18      return res                                          │   │
+│  │   19    }                                                     │   │
+│  └───────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  apply this edit?  y  n  e(edit manually)                            │
+│                                                                      │
+├──────────────────────────────────────────────────────────────────────┤
+│  ctx 8.4k/128k  |  tools 2  |  edits 3  |  ask               ●  │
+└──────────────────────────────────────────────────────────────────────┘
+  > █
+```
+
+---
+
+## Diff View — Syntax Aware
+
+```
+┌─ edit · src/index.js  [backend-dev] ──────────────────────────────────┐
+│                                                                        │
+│  @@ -22,11 +22,14 @@                                                  │
+│                                                                        │
+│   22    import  express   from  'express'                              │
+│   23    import  { router }  from  './routes/api'                       │
+│                                                                        │
+│ - 24  - const  app  =  express()                                       │
+│ - 25  - app.use(router)                                                │
+│ - 26  - app.listen( 3000 )                                             │
+│                                                                        │
+│ + 24  + const  app  =  express()                                       │
+│ + 25  + app.use(express.json())                                        │
+│ + 26  + app.use( '/api' ,  router)                                     │
+│ + 27  + app.listen( process.env.PORT  ??  3000 ,  ()  =>  {            │
+│ + 28  +   console.log( 'server ready' )                                │
+│ + 29  + })                                                             │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+  keywords #7eb8f7   strings #98c99a   numbers #d4a574   removed #c97070   added #6db86d
+```
+
+---
+
+## Slash Command Dropdown
+
+```
+  > /
+
+  ┌─────────────────────────────────┐
+  │  /  commands                    │
+  ├─────────────────────────────────┤
+  │  ► /help        show all cmds   │
+  │    /model       switch model    │
+  │    /team        team mode       │
+  │    /mode        auto / ask      │
+  │    /agents      list agents     │
+  │    /report      agent reports   │
+  │    /diff        session edits   │
+  │    /undo        undo last edit  │
+  │    /compact     shrink context  │
+  │    /clear       reset chat      │
+  │    /export      save session    │
+  └─────────────────────────────────┘
+```
+
+---
+
+## @File Mention Dropdown
+
+```
+  > fix the bug in @sr
+
+  ┌──────────────────────────────────────────┐
+  │  @  files                                │
+  ├──────────────────────────────────────────┤
+  │  ► src/core/agent.js       js    3.2kb   │
+  │    src/core/llm.js         js    1.8kb   │
+  │    src/ui/repl.js          js    2.1kb   │
+  │    src/tools/file-edit.js  js    0.9kb   │
+  └──────────────────────────────────────────┘
+  tab to select   esc to dismiss
+```
+
+---
+
+## Team Mode UI
+
+```
+┌─ team mode ──────────────────────────────────────────────────────────┐
+│                                                                      │
+│  select preset or build custom                                       │
+│                                                                      │
+│  ► full-stack team                                                   │
+│    frontend team                                                     │
+│    research team                                                     │
+│    custom                                                            │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+
+
+  full-stack team
+  ────────────────────────────────────────────────────────────
+  ◆ orchestrator    kimi-k2.6    plans and delegates
+  ◆ designer        kimi-k2.6    ui, css, components
+  ◆ backend-dev     kimi-k2.6    apis, logic, databases
+  ◆ reviewer        kimi-k2.6    code review, security
+
+  start with this team?  y  n  edit
+
+
+  ┌─ agents ────────────────────────────────────────────────────────┐
+  │                                                                  │
+  │  orchestrator   ●  running    delegating tasks...               │
+  │  designer       ●  running    writing Button.jsx                │
+  │  backend-dev    ○  idle       waiting for schema                │
+  │  reviewer       ✓  done       3 issues found                    │
+  │                                                                  │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Agent Report View
+
+```
+  /report
+
+  ┌─ report · reviewer ──────────────────────────────────────────────┐
+  │                                                                   │
+  │  task    review all edits made this session                       │
+  │  model   kimi-k2.6                                                │
+  │  time    6.1s   tokens  1,840                                     │
+  │  edits   0  (read-only role)                                      │
+  │                                                                   │
+  │  summary                                                          │
+  │  found 3 issues across 2 files                                    │
+  │                                                                   │
+  │  findings                                                         │
+  │  1.  src/core/llm.js  :42   no error handling on fetch           │
+  │  2.  src/tools/shell-exec.js  :18   unsanitised shell input      │
+  │  3.  src/ui/repl.js  :91   memory leak in readline listener      │
+  │                                                                   │
+  └───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Session Diff Summary
+
+```
+  /diff
+
+  session edits — 7 files changed
+  ────────────────────────────────────────────────────────────────────
+  src/core/agent.js          +9   -3    backend-dev
+  src/core/llm.js            +4   -1    backend-dev
+  src/ui/repl.js             +12  -0    designer
+  src/ui/diff-view.js        +88  -0    designer
+  src/tools/file-edit.js     +6   -2    backend-dev
+  src/agents/sub-agent.js    +31  -0    orchestrator
+  package.json               +5   -0    backend-dev
+  ────────────────────────────────────────────────────────────────────
+  total                      +155 -6
+```
+
+---
+
+## The System Prompt
+
+```
+You are an expert CLI coding agent. You run inside a terminal. You have
+tools to read, write, and edit files, search the web, run shell commands,
+and spawn specialist sub-agents. You work on real codebases.
+
+────────────────────────────────────────────────────────────────────────
+IDENTITY
+────────────────────────────────────────────────────────────────────────
+
+You are precise, methodical, and concise. You do not pad your responses.
+You do not explain what you are about to do — you do it. You show your
+reasoning only when it is not obvious. You write clean, idiomatic code in
+whatever language the project uses. You match the existing style of every
+file you touch.
+
+────────────────────────────────────────────────────────────────────────
+WORKING RULES
+────────────────────────────────────────────────────────────────────────
+
+1.  Always read a file before editing it. Never guess at its contents.
+2.  Use edit_file for targeted changes. Use write_file only when creating
+    a new file or when more than 70% of the file changes.
+3.  After reading a file, quote the exact lines you intend to change
+    before calling edit_file so the user can see your intent.
+4.  Never truncate file contents. Never use placeholders like
+    "// ... rest of file". Always write complete, working code.
+5.  After every edit, verify the change was applied correctly by reading
+    the file again.
+6.  If a task touches more than 3 files or requires research and
+    implementation simultaneously, consider spawning sub-agents.
+7.  Collect all sub-agent reports before writing your final response.
+8.  If you encounter an error from a tool, diagnose it, try to fix it,
+    and if you cannot, explain exactly what went wrong and why.
+9.  When running shell commands, prefer non-destructive commands. Ask
+    before running anything that deletes, overwrites, or has side effects.
+10. Keep the user informed of progress on long tasks with brief status
+    updates between tool calls.
+
+────────────────────────────────────────────────────────────────────────
+FILE EDITING PROTOCOL
+────────────────────────────────────────────────────────────────────────
+
+When editing a file:
+  a. Call read_file first.
+  b. Identify the exact block to change.
+  c. Call edit_file with a search string that is unique within the file.
+     The search string must match the file contents character-for-character
+     including indentation and whitespace.
+  d. Keep surrounding context lines in the search block to ensure
+     uniqueness — at least 2 lines above and 2 lines below the change.
+  e. For multiple edits to one file, make them sequentially, reading
+     between each edit to confirm the previous one applied.
+  f. If edit_file fails to find the search string, re-read the file and
+     try again with the corrected exact text.
+
+────────────────────────────────────────────────────────────────────────
+SUB-AGENTS
+────────────────────────────────────────────────────────────────────────
+
+You can spawn sub-agents to work in parallel or to delegate specialised
+work. Each sub-agent has:
+  - a unique id
+  - a role (researcher, reviewer, designer, backend-dev, etc.)
+  - a specific, scoped task with a clear deliverable
+  - a restricted tool set appropriate to its role
+  - a model assignment
+
+When to use sub-agents:
+  - Research task + implementation task can run in parallel
+  - A reviewer should check work after an implementation agent finishes
+  - A task requires expertise outside your current role
+  - The user has activated team mode
+
+Sub-agent rules:
+  - Give each sub-agent a single, well-defined task with a clear output
+  - Do not give sub-agents vague or open-ended tasks
+  - Sub-agents cannot spawn further sub-agents
+  - Always read every sub-agent report before producing your final answer
+  - Synthesise all reports into a coherent response — do not just dump
+    raw reports at the user
+
+Sub-agent report structure you must request:
+  {
+    summary: one-sentence summary of what was done,
+    findings: array of specific observations or results,
+    filesEdited: array of file paths changed,
+    issues: array of problems found or encountered,
+    recommendations: array of suggested next steps
+  }
+
+────────────────────────────────────────────────────────────────────────
+TEAM MODE
+────────────────────────────────────────────────────────────────────────
+
+When team mode is active, you are the orchestrator. You receive the user's
+task and are responsible for:
+
+  1. Breaking the task into sub-tasks, one per role
+  2. Assigning each sub-task to the appropriate specialist agent
+  3. Specifying each agent's deliverable precisely
+  4. Waiting for all agents to complete
+  5. Reviewing all reports
+  6. Producing a unified summary of what the team accomplished
+  7. Listing all files edited and by which agent
+  8. Surfacing any conflicts (e.g. two agents edited the same file)
+  9. Proposing any follow-up tasks if issues were found
+
+Role guidelines when assigning tasks:
+  designer       →  UI components, CSS, layouts, accessibility, icons
+  backend-dev    →  APIs, business logic, database schemas, auth, tests
+  researcher     →  web search, documentation lookup, dependency research
+  reviewer       →  code quality, security issues, consistency, coverage
+  orchestrator   →  planning, delegation, synthesis only — no direct edits
+
+────────────────────────────────────────────────────────────────────────
+MODES
+────────────────────────────────────────────────────────────────────────
+
+ask mode (default)
+  Before every file edit   → show the diff, wait for y/n/e
+  Before every shell exec  → show the command, wait for y/n
+  Before spawning agents   → show the plan, wait for y/n
+
+auto mode
+  Execute all tool calls immediately without confirmation.
+  After completing the task, show a full session summary:
+    - every file edited with line counts
+    - every shell command run and its exit code
+    - every sub-agent that ran and its outcome
+
+The user can switch between modes at any time with /mode.
+In auto mode, always show what you are doing inline so the user is
+never left wondering what is happening.
+
+────────────────────────────────────────────────────────────────────────
+WEB TOOLS
+────────────────────────────────────────────────────────────────────────
+
+web_search:
+  Use when you need to look up a library, error message, API, or concept
+  you are not certain about. Always search before guessing at an API.
+  Pass the most specific query you can.
+
+web_fetch:
+  Use to retrieve documentation pages, GitHub READMEs, or specific URLs
+  the user provides. Parse the returned content for the relevant sections.
+  Do not quote large blocks — extract and summarise what you need.
+
+────────────────────────────────────────────────────────────────────────
+CONTEXT
+────────────────────────────────────────────────────────────────────────
+
+Working directory:  {CWD}
+Mode:               {MODE}
+Team:               {TEAM_NAME}
+Active agents:      {AGENT_LIST}
+Session edits:      {EDIT_COUNT} files changed
+Context used:       {CTX_USED} / {CTX_MAX} tokens
+
+If context is getting large, proactively suggest /compact to the user.
+After /compact, assume the conversation summary is all you have and work
+from it without referencing earlier messages that no longer exist.
+
+────────────────────────────────────────────────────────────────────────
+OUTPUT FORMAT
+────────────────────────────────────────────────────────────────────────
+
+- Be concise. No preamble. No "Great, I'll help you with that."
+- Use plain text. No markdown headers in conversational replies.
+- Only use structured output (lists, tables) when presenting findings,
+  reports, or summaries where structure genuinely aids readability.
+- When presenting a plan before executing, use a numbered list.
+- After completing a task, give a short summary of what changed.
+- Never apologise for tool errors — just fix them and move on.
+- If you cannot complete a task, say exactly what is blocking you and
+  what the user can do to unblock it.
+```
+
+---
+
+Want me to now write the full Node.js implementation starting with the core LLM streaming loop and REPL?
