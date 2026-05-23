@@ -138,6 +138,7 @@ const App = () => {
   const [pendingDropdownAction, setPendingDropdownAction] = useState(null);
   const [fileList, setFileList] = useState([]);
   const [checkpointList, setCheckpointList] = useState([]);
+  const [showThinking, setShowThinking] = useState(true);
 
   // Load files when @ is typed
   useEffect(() => {
@@ -360,6 +361,7 @@ const App = () => {
 
     // Shortcuts
     if (key.ctrl && inputChar === 'm') { setShowModelSelector(true); return; }
+    if (key.ctrl && inputChar === 't') { setShowThinking(prev => !prev); return; }
     if (key.ctrl && inputChar === 'o') {
       const agents = getAgents();
       const agentMsgs = messages.filter(m => m.role === 'tool_call' && m.name === 'agent_spawn');
@@ -501,7 +503,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -1229,15 +1231,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
       } else {
         if (msg.reasoning_content) {
-          const cleanReasoning = stripMarkdown(msg.reasoning_content);
-          const wrappedReasoning = wrapText(cleanReasoning, usableWidth - 4);
-          allLines.push({ type: 'reasoning_header', content: '💭 Thinking Process:' });
-          wrappedReasoning.forEach((line) => {
-            allLines.push({
-              type: 'reasoning',
-              content: line
+          if (showThinking) {
+            const cleanReasoning = stripMarkdown(msg.reasoning_content);
+            const wrappedReasoning = wrapText(cleanReasoning, usableWidth - 4);
+            allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to collapse)' });
+            wrappedReasoning.forEach((line) => {
+              allLines.push({
+                type: 'reasoning',
+                content: line
+              });
             });
-          });
+          } else {
+            allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to expand)' });
+          }
         }
         const cleanContent = stripMarkdown(msg.content || '');
         if (cleanContent) {
