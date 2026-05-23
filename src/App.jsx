@@ -515,7 +515,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /cd <path>    - Change the current workspace directory\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/model') {
         setInput('');
@@ -971,6 +971,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         } catch (err) {
           setMessages(prev => [...prev, { role: 'system', content: `[Error] ${err.message}` }]);
           setIsLoading(false);
+        }
+        setInput('');
+        return;
+      } else if (lowerQuery === '/cd') {
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /cd <path>' }]);
+      } else if (lowerQuery.startsWith('/cd ')) {
+        const targetDir = trimmedQuery.slice(4).trim();
+        try {
+          const resolvedPath = path.resolve(process.cwd(), targetDir);
+          const stat = await fs.stat(resolvedPath);
+          if (!stat.isDirectory()) {
+            throw new Error('Path is not a directory');
+          }
+          process.chdir(resolvedPath);
+          setCurrentCwd(resolvedPath);
+          await saveConfig({ activeWorkspace: resolvedPath });
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Switched workspace to: ${resolvedPath}` }]);
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Failed to change directory: ${err.message}` }]);
         }
         setInput('');
         return;
