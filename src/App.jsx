@@ -15,8 +15,8 @@ function formatMarkdown(text) {
   if (!text) return '';
   let result = text;
   
-  // Format code blocks (dimmed markers, cyan content)
-  result = result.replace(/```([\w]*)\n([\s\S]*?)```/g, (match, lang, code) => chalk.dim('```' + lang + '\n') + chalk.hex('#3ECF8E')(code) + chalk.dim('```'));
+  // Format code blocks (dimmed markers, light gray content)
+  result = result.replace(/```([\w]*)\n([\s\S]*?)```/g, (match, lang, code) => chalk.dim('```' + lang + '\n') + chalk.hex('#e5e5e5')(code) + chalk.dim('```'));
   // Inline code backticks (yellow)
   result = result.replace(/`([^`]+)`/g, (match, p1) => chalk.hex('#FBBF24')(p1));
   // Bold (white bold)
@@ -26,10 +26,10 @@ function formatMarkdown(text) {
   // Italic (dim/italic)
   result = result.replace(/\*(.+?)\*/g, (match, p1) => chalk.italic(p1));
   result = result.replace(/_(.+?)_/g, (match, p1) => chalk.italic(p1));
-  // Headers (bold cyan)
-  result = result.replace(/^(#{1,6})\s+(.+)$/gm, (match, p1, p2) => chalk.bold.hex('#60A5FA')(p2));
-  // Links
-  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => `${chalk.underline.hex('#60A5FA')(p1)} (${chalk.dim(p2)})`);
+  // Headers (bold brand orange)
+  result = result.replace(/^(#{1,6})\s+(.+)$/gm, (match, p1, p2) => chalk.bold.hex('#D77757')(p2));
+  // Links (brand orange)
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => `${chalk.underline.hex('#D77757')(p1)} (${chalk.dim(p2)})`);
   // Bullet markers (keep text, color marker)
   result = result.replace(/^(\s*[-*+]\s+)/gm, (match, p1) => chalk.hex('#D77757')(p1));
   // Numbered list markers
