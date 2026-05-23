@@ -20,6 +20,19 @@ function truncateLine(line, maxWidth) {
   return line.slice(0, maxWidth - 1) + '…';
 }
 
+function wrapInBox(label, contentLines, termWidth) {
+  const boxW = Math.min(termWidth - 4, 78);
+  const topLine = '┌─ ' + label + ' ' + '─'.repeat(Math.max(0, boxW - label.length - 5)) + '┐';
+  const botLine = '└' + '─'.repeat(boxW - 2) + '┘';
+  const result = [];
+  result.push({ type: 'box_border', content: topLine });
+  contentLines.forEach(l => {
+    result.push(l);
+  });
+  result.push({ type: 'box_border', content: botLine });
+  return result;
+}
+
 export function formatToolResult(funcName, result, termWidth) {
   if (!result) return formatToolRunning(funcName);
   if (result.type === 'error') return formatError(result, funcName, termWidth);
@@ -59,7 +72,7 @@ function formatAgentReportAll(result, termWidth) {
 
 function formatToolRunning(funcName) {
   return [
-    { type: 'tool_status', icon: '⟳', color: '#a3a3a3', content: funcName },
+    { type: 'tool_status', icon: '⟳', color: '#d4a574', content: funcName },
   ];
 }
 
@@ -72,67 +85,54 @@ function formatError(result, funcName, termWidth) {
 
 function formatFileCreated(result, termWidth) {
   const relPath = shortenPath(result.path);
-  const lines = [];
+  const innerLines = [];
 
-  lines.push({
-    type: 'tool_status',
-    icon: '✓',
-    color: '#3ECF8E',
-    content: `write_file`,
-    detail: chalk.hex('#737373')(`${relPath}  ${result.lineCount} lines • ${result.bytes} bytes`),
-  });
+  innerLines.push({ type: 'tool_content', content: indent(chalk.hex('#888888')(`${result.lineCount} lines  ${result.bytes} bytes`)) });
 
-  // Use structured diff renderer
   const oldContent = result.oldContent ?? '';
   const hunks = getPatchFromContents(result.path, oldContent, result.content);
   if (hunks.length > 0) {
     hunks.forEach(hunk => {
-      const diffLines = renderHunk(hunk, Math.min(termWidth - 2, 90));
-      diffLines.forEach(dl => lines.push({ type: 'tool_content', content: indent(dl) }));
+      const diffLines = renderHunk(hunk, Math.min(termWidth - 8, 74));
+      diffLines.forEach(dl => innerLines.push({ type: 'tool_content', content: indent(dl) }));
     });
   } else {
-    // New file - show content in a box
     const contentLines = result.content.split('\n');
-    const boxW = Math.min(Math.floor(termWidth * 0.85), 80);
-    const innerW = boxW - 2;
-    const lineNumWidth = String(contentLines.length).length;
-    const codeW = innerW - lineNumWidth - 3;
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u250c' + '\u2500'.repeat(innerW) + '\u2510')) });
-    contentLines.forEach((line, i) => {
-      const num = chalk.hex('#525252')(String(i + 1).padStart(lineNumWidth));
-      const code = chalk.white(truncateLine(line, codeW).padEnd(codeW));
-      lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u2502 ') + num + ' ' + code + chalk.hex('#525252')(' \u2502')) });
+    const preview = contentLines.slice(0, 8);
+    preview.forEach((line, i) => {
+      const num = chalk.hex('#383838')(String(i + 1).padStart(3));
+      innerLines.push({ type: 'tool_content', content: indent(`${num}  ${chalk.hex('#f0f0f0')(truncateLine(line, termWidth - 12))}`) });
     });
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')('\u2514' + '\u2500'.repeat(innerW) + '\u2518')) });
+    if (contentLines.length > 8) {
+      innerLines.push({ type: 'tool_content', content: indent(chalk.hex('#444444')(`  ... ${contentLines.length - 8} more lines`)) });
+    }
   }
 
-  return lines;
+  return wrapInBox(`write · ${relPath}`, innerLines, termWidth);
 }
 
 function formatFileRead(result, termWidth) {
   const relPath = shortenPath(result.path);
   const lines = [];
 
-  // Show badge with filename in accent color + preview of 5 lines
   const contentLines = result.content.split('\n');
   const preview = contentLines.slice(0, 5);
-  const hasMore = contentLines.length > 5;
 
   lines.push({
     type: 'tool_status',
     icon: '✓',
-    color: '#3ECF8E',
-    content: `read_file`,
-    detail: chalk.hex('#D77757')(`[${relPath}]`) + chalk.hex('#737373')(`  ${result.lineCount} lines`),
+    color: '#98c99a',
+    content: `read`,
+    detail: chalk.hex('#7eb8f7')(`${relPath}`) + chalk.hex('#444444')(`  ${result.lineCount} lines`),
   });
 
   preview.forEach((line, i) => {
-    const num = chalk.hex('#525252')(String(i + 1).padStart(3));
-    lines.push({ type: 'tool_content', content: indent(`${num}  ${chalk.white(truncateLine(line, termWidth - 10))}`) });
+    const num = chalk.hex('#383838')(String(i + 1).padStart(3));
+    lines.push({ type: 'tool_content', content: indent(`${num}  ${chalk.hex('#888888')(truncateLine(line, termWidth - 10))}`) });
   });
 
-  if (hasMore) {
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#525252')(`  ... ${contentLines.length - 5} more lines`)) });
+  if (contentLines.length > 5) {
+    lines.push({ type: 'tool_content', content: indent(chalk.hex('#444444')(`  ... ${contentLines.length - 5} more lines`)) });
   }
 
   return lines;
@@ -140,76 +140,66 @@ function formatFileRead(result, termWidth) {
 
 function formatFileEdited(result, termWidth) {
   const relPath = shortenPath(result.path);
-  const lines = [];
+  const innerLines = [];
 
-  lines.push({
-    type: 'tool_status',
-    icon: '✓',
-    color: '#3ECF8E',
-    content: `edit_file`,
-    detail: chalk.hex('#737373')(`${relPath}  ${result.blockCount} block(s)`),
-  });
+  const addedStr = chalk.hex('#6db86d')(`+${result.totalAdded}`);
+  const removedStr = chalk.hex('#c97070')(`-${result.totalRemoved}`);
+  innerLines.push({ type: 'tool_content', content: indent(`${addedStr}  ${removedStr}`) });
 
-  const addedStr = chalk.hex('#3ECF8E')(`+${result.totalAdded}`);
-  const removedStr = chalk.hex('#EF4444')(`-${result.totalRemoved}`);
-  lines.push({ type: 'tool_content', content: indent(`${addedStr} added  ${removedStr} removed`) });
-
-  // Use structured diff renderer
   if (result.oldContent !== undefined && result.newContent !== undefined) {
     const hunks = getPatchFromContents(result.path, result.oldContent, result.newContent);
     hunks.forEach(hunk => {
-      const diffLines = renderHunk(hunk, Math.min(termWidth - 2, 90));
-      diffLines.forEach(dl => lines.push({ type: 'tool_content', content: indent(dl) }));
+      const diffLines = renderHunk(hunk, Math.min(termWidth - 8, 74));
+      diffLines.forEach(dl => innerLines.push({ type: 'tool_content', content: indent(dl) }));
     });
   } else {
-    // Fallback to block-level diff if full content not available
     result.blocks.forEach((block) => {
-      lines.push({ type: 'tool_content', content: indent(chalk.hex('#737373')(`@@ line ${block.lineNum} @@`)) });
+      innerLines.push({ type: 'tool_content', content: indent(chalk.hex('#6a8abf')(`@@ line ${block.lineNum} @@`)) });
       block.searchLines.forEach(sl => {
-        lines.push({ type: 'tool_content', content: indent(chalk.hex('#EF4444')(`- ${truncateLine(sl, termWidth - 8)}`)) });
+        innerLines.push({ type: 'tool_content', content: indent(chalk.hex('#c97070')(`- ${truncateLine(sl, termWidth - 8)}`)) });
       });
       block.replaceLines.forEach(rl => {
-        lines.push({ type: 'tool_content', content: indent(chalk.hex('#3ECF8E')(`+ ${truncateLine(rl, termWidth - 8)}`)) });
+        innerLines.push({ type: 'tool_content', content: indent(chalk.hex('#6db86d')(`+ ${truncateLine(rl, termWidth - 8)}`)) });
       });
     });
   }
 
-  return lines;
+  return wrapInBox(`edit · ${relPath}`, innerLines, termWidth);
 }
 
 function formatBashResult(result, termWidth) {
   const lines = [];
   const success = result.exitCode === 0 && !result.timedOut;
-  const icon = success ? '✓' : '✗';
-  const iconColor = success ? '#3ECF8E' : '#EF4444';
 
   lines.push({
     type: 'tool_status',
-    icon,
-    color: iconColor,
-    content: `run_bash`,
-    detail: chalk.hex('#737373')(`${truncateLine(result.command, 40)}  [exit: ${result.exitCode}]`),
+    icon: success ? '✓' : '✗',
+    color: success ? '#98c99a' : '#c97070',
+    content: `$`,
+    detail: chalk.hex('#888888')(`${truncateLine(result.command, 50)}`) + chalk.hex('#444444')(` [${result.exitCode}]`),
   });
 
   const hasOutput = result.stdout.trim() || result.stderr.trim();
   if (!hasOutput) {
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#737373')('(no output)')) });
     return lines;
   }
 
-  // Show output directly
   if (result.stdout.trim()) {
-    result.stdout.trim().split('\n').forEach(l => {
-      lines.push({ type: 'tool_content', content: indent(chalk.white(truncateLine(l, termWidth - 6))) });
+    result.stdout.trim().split('\n').slice(0, 10).forEach(l => {
+      lines.push({ type: 'tool_content', content: indent(chalk.hex('#f0f0f0')(truncateLine(l, termWidth - 6))) });
     });
+    const totalLines = result.stdout.trim().split('\n').length;
+    if (totalLines > 10) {
+      lines.push({ type: 'tool_content', content: indent(chalk.hex('#444444')(`... ${totalLines - 10} more lines`)) });
+    }
   }
   if (result.stderr.trim()) {
-    result.stderr.trim().split('\n').forEach(l => {
-      lines.push({ type: 'tool_content', content: indent(chalk.hex('#EF4444')(truncateLine(l, termWidth - 6))) });
+    result.stderr.trim().split('\n').slice(0, 5).forEach(l => {
+      lines.push({ type: 'tool_content', content: indent(chalk.hex('#c97070')(truncateLine(l, termWidth - 6))) });
     });
   }
   if (result.timedOut) {
-    lines.push({ type: 'tool_content', content: indent(chalk.hex('#EF4444')('Command timed out')) });
+    lines.push({ type: 'tool_content', content: indent(chalk.hex('#c97070')('timed out')) });
   }
 
   return lines;

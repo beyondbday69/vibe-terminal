@@ -1351,8 +1351,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         }
         const cleanContent = formatMarkdown(msg.content || '');
         if (cleanContent) {
-          const wrapped = wrapText(cleanContent, usableWidth - 2);
+          const wrapped = wrapText(cleanContent, usableWidth - 6);
+          const boxW = Math.min(usableWidth - 2, 78);
+          const label = ' assistant ';
+          const topLine = '┌─' + label + '─'.repeat(Math.max(0, boxW - label.length - 3)) + '┐';
+          const botLine = '└' + '─'.repeat(boxW - 2) + '┘';
+          allLines.push({ type: 'box_border', content: topLine });
           wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
+          allLines.push({ type: 'box_border', content: botLine });
         }
       }
       allLines.push({ type: 'spacer' });
@@ -1509,7 +1515,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             return <Text key={i} color="#444444" italic>  {line.content}</Text>;
           } else if (line.type === 'assistant') {
             if (!line.content) return null;
-            return <Text key={i} color="#f0f0f0">{line.isFirst ? '  ' : '  '}{line.content}</Text>;
+            return <Text key={i} color="#f0f0f0">  │  {line.content}</Text>;
+          } else if (line.type === 'box_border') {
+            return <Text key={i} color="#2a2a2a">  {line.content}</Text>;
           } else if (line.type === 'tool_status') {
             const icon = chalk.hex(line.color)(line.icon);
             const detail = line.detail || '';
