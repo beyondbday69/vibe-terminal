@@ -1365,7 +1365,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   }
 
   return (
-    <Box flexDirection="column" width={termWidth} paddingX={2} paddingY={1}>
+    <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
       <Box alignItems="center">
         <AnimatedLogo />
         <Box flexDirection="column">

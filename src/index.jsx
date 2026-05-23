@@ -9,4 +9,11 @@ process.stdout.write('\x1b[?1006l');
 process.stdout.write('\x1b[?1015l');
 process.stdout.write('\x1b[?1003l');
 
+// Enter alternate screen buffer for full-screen app
+process.stdout.write('\x1b[?1049h');
+
+process.on('exit', () => {
+  process.stdout.write('\x1b[?1049l');
+});
+
 render(<App />, { patchConsole: false });
