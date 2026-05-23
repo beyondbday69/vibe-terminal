@@ -47,7 +47,7 @@ function shortenPath(p) {
 }
 
 let apiKey = '';
-let baseUrl = 'https://opencode.ai/zen/v1';
+let baseUrl = 'https://opencode.ai/zen/go/v1';
 
 export function setApiKey(key) {
   apiKey = key;

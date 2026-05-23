@@ -149,8 +149,8 @@ function shortenPath(p) {
 async function callAgentAI(messages) {
   const config = await loadConfig();
   const env = await loadEnv();
-  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' };
-  const model = config.activeModel || 'gpt-4o';
+  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: '' };
+  const model = config.activeModel || 'kimi-k2.6';
   const key = provider.apiKey || env.OPENAI_API_KEY || '';
 
   const res = await fetch(`${provider.baseUrl}/chat/completions`, {
@@ -530,7 +530,7 @@ app.post('/api/clone', async (req, res) => {
 app.get('/api/models', async (req, res) => {
   const config = await loadConfig();
   const env = await loadEnv();
-  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/v1', apiKey: '' };
+  const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: '' };
   const key = provider.apiKey || env.OPENAI_API_KEY || '';
   const modelsUrl = provider.modelsUrl || `${provider.baseUrl}/models`;
   try {
