@@ -1032,7 +1032,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code. When you have completed modifying the codebase, you MUST use the git_commit_and_push tool to commit and push your changes to the "agy" branch.' };
+    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
 
     try {
       let requiresApiCall = true;
