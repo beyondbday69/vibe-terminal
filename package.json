@@ -7,9 +7,11 @@
   },
   "dependencies": {
     "ink": "^4.0.0",
+    "ink-markdown": "^1.0.4",
     "ink-text-input": "^5.0.0",
     "picomatch": "^4.0.4",
-    "react": "^18.0.0"
+    "react": "^18.0.0",
+    "wrap-ansi": "^10.0.0"
   },
   "devDependencies": {
     "tsx": "^4.0.0"

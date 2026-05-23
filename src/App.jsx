@@ -11,28 +11,32 @@ import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { wrapText } from './utils/text.js';
 import { formatToolResult } from './utils/toolFormatters.js';
 
-function stripMarkdown(text) {
+function formatMarkdown(text) {
   if (!text) return '';
   let result = text;
-  // Remove code block markers but keep content
-  result = result.replace(/```[\w]*\n?/g, '');
-  result = result.replace(/```$/gm, '');
-  // Remove inline code backticks
-  result = result.replace(/`([^`]+)`/g, '$1');
-  // Remove bold/italic markers
-  result = result.replace(/\*\*\*(.+?)\*\*\*/g, '$1');
-  result = result.replace(/\*\*(.+?)\*\*/g, '$1');
-  result = result.replace(/\*(.+?)\*/g, '$1');
-  result = result.replace(/___(.+?)___/g, '$1');
-  result = result.replace(/__(.+?)__/g, '$1');
-  result = result.replace(/_(.+?)_/g, '$1');
-  // Remove headers
-  result = result.replace(/^#{1,6}\s+/gm, '');
-  // Remove bullet markers (keep text)
-  result = result.replace(/^\s*[-*+]\s+/gm, '  ');
-  // Remove numbered list markers (keep text)
-  result = result.replace(/^\s*\d+\.\s+/gm, '  ');
-  return result;
+  
+  // Format code blocks (dimmed markers, cyan content)
+  result = result.replace(/```([\w]*)\n([\s\S]*?)```/g, (match, lang, code) => chalk.dim('```' + lang + '\n') + chalk.hex('#3ECF8E')(code) + chalk.dim('```'));
+  // Inline code backticks (yellow)
+  result = result.replace(/`([^`]+)`/g, (match, p1) => chalk.hex('#FBBF24')(p1));
+  // Bold (white bold)
+  result = result.replace(/\*\*\*(.+?)\*\*\*/g, (match, p1) => chalk.bold.italic.white(p1));
+  result = result.replace(/\*\*(.+?)\*\*/g, (match, p1) => chalk.bold.white(p1));
+  result = result.replace(/__(.+?)__/g, (match, p1) => chalk.bold.white(p1));
+  // Italic (dim/italic)
+  result = result.replace(/\*(.+?)\*/g, (match, p1) => chalk.italic(p1));
+  result = result.replace(/_(.+?)_/g, (match, p1) => chalk.italic(p1));
+  // Headers (bold cyan)
+  result = result.replace(/^(#{1,6})\s+(.+)$/gm, (match, p1, p2) => chalk.bold.hex('#60A5FA')(p2));
+  // Links
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => `${chalk.underline.hex('#60A5FA')(p1)} (${chalk.dim(p2)})`);
+  // Bullet markers (keep text, color marker)
+  result = result.replace(/^(\s*[-*+]\s+)/gm, (match, p1) => chalk.hex('#D77757')(p1));
+  // Numbered list markers
+  result = result.replace(/^(\s*\d+\.\s+)/gm, (match, p1) => chalk.hex('#D77757')(p1));
+
+  // Wrap the entire output in white so plain text remains white
+  return chalk.white(result);
 }
 
 const getRepoName = (url) => {
@@ -1276,7 +1280,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       } else {
         if (msg.reasoning_content) {
           if (showThinking) {
-            const cleanReasoning = stripMarkdown(msg.reasoning_content);
+            const cleanReasoning = formatMarkdown(msg.reasoning_content);
             const wrappedReasoning = wrapText(cleanReasoning, usableWidth - 4);
             allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to collapse)' });
             wrappedReasoning.forEach((line) => {
@@ -1289,7 +1293,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to expand)' });
           }
         }
-        const cleanContent = stripMarkdown(msg.content || '');
+        const cleanContent = formatMarkdown(msg.content || '');
         if (cleanContent) {
           const wrapped = wrapText(cleanContent, usableWidth - 2);
           wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
@@ -1427,7 +1431,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             return <Text key={i} color="#666666" italic>  {line.content}</Text>;
           } else if (line.type === 'assistant') {
             if (!line.content) return null;
-            return <Text key={i} bold color="white">{line.isFirst ? '• ' : '  '}{line.content}</Text>;
+            return <Text key={i}>{line.isFirst ? chalk.bold('• ') : '  '}{line.content}</Text>;
           } else if (line.type === 'tool_status') {
             const icon = chalk.hex(line.color)(line.icon);
             const detail = line.detail || '';

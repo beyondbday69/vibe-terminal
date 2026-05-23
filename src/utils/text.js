@@ -1,18 +1,11 @@
+import wrapAnsi from 'wrap-ansi';
+
 export const wrapText = (text, maxWidth) => {
   if (!text) return [''];
-  const lines = [];
-  const splitByNewline = text.split('\n');
   
-  splitByNewline.forEach(line => {
-    if (line.length === 0) {
-      lines.push('');
-    } else {
-      let rem = line;
-      while (rem.length > 0) {
-        lines.push(rem.substring(0, maxWidth));
-        rem = rem.substring(maxWidth);
-      }
-    }
-  });
-  return lines;
+  // wrapAnsi handles ANSI escape codes correctly
+  // hard: true forces wrap at maxWidth even inside a word
+  // trim: false preserves leading spaces
+  const wrapped = wrapAnsi(text, maxWidth, { hard: true, trim: false });
+  return wrapped.split('\n');
 };
