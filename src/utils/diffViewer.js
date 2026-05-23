@@ -11,7 +11,26 @@ const C_ACCENT = '#D77757';
 const C_WHITE = '#ffffff';
 const C_YELLOW = '#FBBF24';
 const C_CODE_BG = '#272822';
+import { SYNTAX_COLORS } from '../constants.js';
 
+function applySyntaxHighlighting(text) {
+  let highlighted = text;
+  
+  // Comments
+  highlighted = highlighted.replace(/(\/\/.*|\/\*[\s\S]*?\*\/)/g, chalk.hex(SYNTAX_COLORS.comments)('$1'));
+  
+  // Strings
+  highlighted = highlighted.replace(/(["'`])(?:(?=(\\?))\2.)*?\1/g, chalk.hex(SYNTAX_COLORS.strings)('$&'));
+  
+  // Keywords
+  const keywords = /\b(const|let|var|function|return|if|else|for|while|import|export|class|extends|new|this|await|async|try|catch)\b/g;
+  highlighted = highlighted.replace(keywords, chalk.hex(SYNTAX_COLORS.keywords)('$1'));
+  
+  // Numbers
+  highlighted = highlighted.replace(/\b(\d+(\.\d+)?)\b/g, chalk.hex(SYNTAX_COLORS.numbers)('$1'));
+  
+  return highlighted;
+}
 const SIDE_BY_SIDE_MIN_WIDTH = 100;
 const MAX_ROWS = 50;
 
@@ -115,26 +134,28 @@ function renderCell(lineno, text, tag, codeWidth) {
     displayText = displayText.padEnd(codeWidth);
   }
 
+  const highlightedText = applySyntaxHighlighting(displayText);
+
   let result = '';
   if (tag === 'eq') {
     result = chalk.dim.hex(C_DIM).bgHex(C_CODE_BG)(lnoStr) +
       chalk.bgHex(C_CODE_BG)('  ') +
-      chalk.bgHex(C_CODE_BG)(displayText);
+      chalk.bgHex(C_CODE_BG)(highlightedText);
   } else if (tag === 'add') {
     result = chalk.bold.hex(C_GREEN).bgHex(C_CODE_BG)(lnoStr) +
       chalk.bold.hex(C_GREEN).bgHex(C_CODE_BG)(' +') +
-      chalk.bgHex(C_CODE_BG)(displayText);
+      chalk.bgHex(C_CODE_BG)(highlightedText);
   } else if (tag === 'del') {
     result = chalk.bold.hex(C_RED).bgHex(C_CODE_BG)(lnoStr) +
       chalk.bold.hex(C_RED).bgHex(C_CODE_BG)(' -') +
-      chalk.bgHex(C_CODE_BG)(displayText);
+      chalk.bgHex(C_CODE_BG)(highlightedText);
   }
 
   return result;
 }
 
 // ── Main Diff View Generator ───────────────────────────────────────────────────
-export function formatDiffView(filePath, newContent, oldContent, termWidth) {
+export function formatDiffView(filePath, newContent, oldContent, termWidth, role = null) {
   const p = filePath.startsWith('/') ? filePath : path.resolve(process.cwd(), filePath);
   const isNew = oldContent === null || oldContent === undefined;
   const relPath = fileRel(p);
@@ -207,7 +228,8 @@ export function formatDiffView(filePath, newContent, oldContent, termWidth) {
   const lines = [];
 
   // Header
-  lines.push({ type: 'tool_content', content: `  ${chalk.hex(C_ACCENT)('│')} ${action} ${chalk.hex(C_WHITE)(relPath)}` });
+  const roleText = role ? chalk.dim(` [${role}]`) : '';
+  lines.push({ type: 'tool_content', content: `  ${chalk.hex(C_ACCENT)('│')} ${action} ${chalk.hex(C_WHITE)(relPath)}${roleText}` });
   lines.push({ type: 'tool_content', content: '' });
 
   if (tw >= SIDE_BY_SIDE_MIN_WIDTH) {

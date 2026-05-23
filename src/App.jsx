@@ -50,12 +50,15 @@ const getRepoName = (url) => {
 };
 import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
 import { listFiles } from './utils/fileList.js';
+import { LOGO_ROWS, COLORS, SYSTEM_PROMPT_TEMPLATE } from './constants.js';
 import { loadEnv, saveEnv } from './utils/env.js';
 import { createCheckpoint, listCheckpoints, rewindTo, forkCheckpoint, getCheckpoint } from './utils/rewind.js';
 
 // Components
 import { AnimatedLogo } from './components/AnimatedLogo.jsx';
 import { AnimatedInputBox } from './components/AnimatedInputBox.jsx';
+import { TeamSelector } from './components/TeamSelector.jsx';
+import { AgentReportCard } from './components/AgentReportCard.jsx';
 import { ModelSelector } from './components/ModelSelector.jsx';
 import { SessionPicker } from './components/SessionPicker.jsx';
 import { CommandDropdown, COMMANDS } from './components/CommandDropdown.jsx';
@@ -144,6 +147,10 @@ const App = () => {
   const [fileList, setFileList] = useState([]);
   const [checkpointList, setCheckpointList] = useState([]);
   const [showThinking, setShowThinking] = useState(true);
+  const [activeTeam, setActiveTeam] = useState('solo');
+  const [showTeamSelector, setShowTeamSelector] = useState(false);
+  const [sessionEdits, setSessionEdits] = useState([]);
+  const [activeRole, setActiveRole] = useState(null);
   const [tokenUsage, setTokenUsage] = useState({ used: 0, limit: 128000 });
 
   // Load files when @ is typed
@@ -521,6 +528,31 @@ const App = () => {
       if (lowerQuery === '/help') {
         const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /cd <path>    - Change the current workspace directory\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
+      } else if (lowerQuery === '/team') {
+        setInput('');
+        setShowTeamSelector(true);
+        return;
+      } else if (lowerQuery === '/agents' || lowerQuery === '/report') {
+        const agentsMap = getAgents();
+        if (agentsMap.size === 0) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No agents have been spawned this session.' }]);
+        } else {
+          const newMsgs = [{ role: 'user', content: query }];
+          for (const [id, agent] of agentsMap.entries()) {
+            if (agent.report) {
+              newMsgs.push({ type: 'agent_report_card', report: agent.report });
+            } else {
+              newMsgs.push({ role: 'system', content: `[System] Agent ${id} (${agent.role || 'unknown'}) is ${agent.status}. Goal: ${agent.goal.slice(0, 50)}...` });
+            }
+          }
+          setMessages(prev => [...prev, ...newMsgs]);
+        }
+      } else if (lowerQuery === '/diff') {
+        if (sessionEdits.length === 0) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No files have been edited this session.' }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { type: 'session_diff_log', edits: sessionEdits }]);
+        }
       } else if (lowerQuery === '/model') {
         setInput('');
         setShowModelSelector(true);
@@ -1032,7 +1064,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const systemPrompt = { role: 'system', content: 'You are a helpful coding assistant. Do not use emojis in any response. Use plain text only. Use >, -, *, or numbers for lists. Use backticks for code.' };
+    const systemPromptContent = SYSTEM_PROMPT_TEMPLATE
+      .replace('{CWD}', currentCwd)
+      .replace('{MODE}', askBeforeEdits ? 'ask' : 'auto')
+      .replace('{TEAM_NAME}', activeTeam)
+      .replace('{AGENT_LIST}', 'none') // TODO: wire to actual active agents
+      .replace('{EDIT_COUNT}', sessionEdits.length)
+      .replace('{CTX_USED}', tokenUsage.used)
+      .replace('{CTX_MAX}', tokenUsage.limit);
+
+    const systemPrompt = { role: 'system', content: systemPromptContent };
 
     try {
       let requiresApiCall = true;
@@ -1179,6 +1220,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             };
             setMessages([...conversation]);
 
+            if ((funcName === 'edit_file' || funcName === 'write_file') && result && result.success !== false) {
+              const added = result.totalAdded || result.lineCount || 0;
+              const removed = result.totalRemoved || 0;
+              const path = result.path || funcArgs.file_path;
+              if (path) {
+                setSessionEdits(prev => [...prev, {
+                  path,
+                  linesAdded: added,
+                  linesRemoved: removed,
+                  role: activeTeam === 'solo' ? 'you' : (activeRole || 'orchestrator'),
+                  ts: Date.now()
+                }]);
+              }
+            }
+
             // Append raw result for API context (only tool_call_id and content)
             const rawContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
             conversation = [...conversation, {
@@ -1317,6 +1373,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     return { visibleLines: lines, actualScroll: curScroll, maxScroll };
   }, [messages, termWidth, termHeight, chatScroll]);
 
+  if (showTeamSelector) {
+    return (
+      <TeamSelector
+        activeTeam={activeTeam}
+        onSelect={(team) => {
+          setActiveTeam(team);
+          setShowTeamSelector(false);
+          setMessages(prev => [...prev, { role: 'system', content: `[System] Team switched to: ${team}` }]);
+        }}
+        onClose={() => setShowTeamSelector(false)}
+        termWidth={termWidth}
+        termHeight={termHeight}
+      />
+    );
+  }
+
   if (showModelSelector) {
     return (
       <ModelSelector
@@ -1450,6 +1522,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             return <Text key={i}>{'  '}{icon}{' '}{chalk.bold.white(line.content)}{'  '}{detail}</Text>;
           } else if (line.type === 'tool_content') {
             return <Text key={i}>{line.content}</Text>;
+          } else if (line.type === 'agent_report_card') {
+            return <AgentReportCard key={i} report={line.report} termWidth={termWidth} />;
+          } else if (line.type === 'session_diff_log') {
+            const { edits } = line;
+            const totalAdded = edits.reduce((sum, e) => sum + e.linesAdded, 0);
+            const totalRemoved = edits.reduce((sum, e) => sum + e.linesRemoved, 0);
+            return (
+              <Box key={i} flexDirection="column" marginTop={1} marginBottom={1}>
+                <Text color="#a3a3a3">  session edits — {edits.length} files changed</Text>
+                <Text color="#333333">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
+                {edits.map((e, idx) => (
+                  <Box key={idx} marginLeft={2}>
+                    <Box width={30}><Text color="#f0f0f0">{e.path.length > 28 ? '...' + e.path.slice(-25) : e.path}</Text></Box>
+                    <Box width={6}><Text color="#3ECF8E">+{e.linesAdded}</Text></Box>
+                    <Box width={6}><Text color="#EF4444">-{e.linesRemoved}</Text></Box>
+                    <Text color="#c9a8f5">{e.role}</Text>
+                  </Box>
+                ))}
+                <Text color="#333333">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
+                <Box marginLeft={2}>
+                  <Box width={30}><Text color="#a3a3a3">total</Text></Box>
+                  <Box width={6}><Text color="#3ECF8E">+{totalAdded}</Text></Box>
+                  <Box width={6}><Text color="#EF4444">-{totalRemoved}</Text></Box>
+                </Box>
+              </Box>
+            );
           } else {
             return <Text key={i}> </Text>;
           }
@@ -1487,8 +1585,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       <Box justifyContent="space-between" marginTop={1}>
         <Text bold color="white">{displayDir}</Text>
         <Box>
-          <Text color="#a3a3a3">Mode: </Text>
-          <Text bold color={askBeforeEdits ? '#D77757' : '#666666'}>{askBeforeEdits ? 'Ask before edits' : 'Auto execute edits'}</Text>
+          <Text color="#a3a3a3">Team: </Text>
+          <Text bold color="#D77757">{activeTeam}</Text>
+          <Text color="#a3a3a3">  •  Mode: </Text>
+          <Text bold color={askBeforeEdits ? '#D77757' : '#666666'}>{askBeforeEdits ? 'Ask' : 'Auto'}</Text>
           <Text color="#a3a3a3">  •  Model: </Text>
           <Text color="#D77757">{activeModel.length > 20 ? activeModel.slice(0, 20) + '..' : activeModel}</Text>
           <Text color="#a3a3a3">  •  </Text>

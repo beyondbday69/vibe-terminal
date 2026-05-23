@@ -4,9 +4,36 @@ Terminal-based AI chat client built with [Ink](https://github.com/vadimdemedes/i
 
 ## Install
 
-```bash
-npm install
-```
+### Prerequisites
+
+- Node.js 18 or higher
+- npm
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd vibe-terminal
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+### Environment Setup
+
+Before running the app, configure your API key using one of the following methods:
+
+- Set the `OPENAI_API_KEY` environment variable:
+  ```bash
+  export OPENAI_API_KEY="your-api-key"
+  ```
+
+- Run the app and use the `/apikey` command to set and persist your key.
+
+- Add the key to `~/.vibe-code/.env` directly.
 
 ## Run
 
@@ -99,10 +126,23 @@ The AI has access to 30 tools:
 
 ## Tech Stack
 
-- [Ink](https://github.com/vadimdemedes/ink) v4 — React for CLIs
-- React 18
-- Node.js 18+
-- `tsx` — TypeScript/JSX execution without build step
+### Terminal App
+
+- **[Ink](https://github.com/vadimdemedes/ink) v4** — React for CLIs, powers the terminal UI
+- **React 18** — Component model and state management
+- **Node.js 18+** — Runtime environment
+- **tsx** — TypeScript/JSX execution without a build step (run directly via `npx tsx`)
+
+### Web Version
+
+- **Vite** — Frontend build tooling and dev server
+- **Express** — Backend API server (port 3001)
+- **PWA** — Installable on mobile and desktop
+
+### Shared
+
+- Both versions share the same config, sessions, and rewind data in `~/.vibe-code/`
+- Same tool system and agent architecture across terminal and web
 
 ## Config
 

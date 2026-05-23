@@ -259,3 +259,89 @@ export async function handleAgentStop(args) {
   agent.status = 'stopped';
   return { type: 'generic', message: `Agent ${agent_id} stopped.` };
 }
+
+export async function handleAgentReport(args) {
+  const { agent_id } = args;
+  if (!agent_id) return { type: 'error', message: 'No agent_id provided.' };
+
+  const agent = agents.get(agent_id);
+  if (!agent) return { type: 'error', message: `Agent not found: ${agent_id}` };
+
+  if (!agent.report) {
+    if (agent.status === 'completed' && agent.result) {
+      // Stub a basic report if not formatted by the agent
+      agent.report = {
+        role: agent.role || 'agent',
+        status: agent.status,
+        model: activeModel,
+        task: agent.goal.slice(0, 50),
+        summary: agent.result.slice(0, 100) + '...',
+        findings: [],
+        issues: [],
+        recommendations: [],
+      };
+    } else {
+      return { type: 'generic', message: `Agent ${agent_id} is ${agent.status} and has no report yet.` };
+    }
+  }
+
+  return { type: 'agent_report', report: agent.report };
+}
+
+export async function handleAgentReportAll() {
+  const reports = [];
+  for (const [id, agent] of agents.entries()) {
+    if (agent.status === 'completed') {
+      if (!agent.report && agent.result) {
+        agent.report = {
+          role: agent.role || 'agent',
+          status: agent.status,
+          model: activeModel,
+          task: agent.goal.slice(0, 50),
+          summary: agent.result.slice(0, 100) + '...',
+          findings: [],
+          issues: [],
+          recommendations: [],
+        };
+      }
+      if (agent.report) {
+        reports.push(agent.report);
+      }
+    }
+  }
+  return { type: 'agent_report_all', reports };
+}
+
+export async function handleTeamSpawn(args) {
+  const { task, team_id } = args;
+  if (!task) return { type: 'error', message: 'No task provided for the team.' };
+
+  // For this simplified logic, we just spawn a generic agent for now if no specific orchestrator logic is present
+  // A real implementation would parse the team_id preset, break the task, and spawn multiple specialized agents.
+  const id = nextAgentId();
+  const agent = {
+    id,
+    role: 'orchestrator',
+    goal: task,
+    status: 'running',
+    createdAt: Date.now(),
+    iterations: 0,
+    lastAction: null,
+    lastActionDetail: null,
+    result: null,
+    error: null,
+    log: [],
+  };
+
+  agents.set(id, agent);
+  
+  runAgentLoop(agent).catch(err => {
+    agent.status = 'failed';
+    agent.error = err.message;
+  });
+
+  return {
+    type: 'team_result',
+    agents: [agent.id]
+  };
+}

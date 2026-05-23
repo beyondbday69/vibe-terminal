@@ -28,7 +28,33 @@ export function formatToolResult(funcName, result, termWidth) {
   if (result.type === 'file_read') return formatFileRead(result, termWidth);
   if (result.type === 'bash_result') return formatBashResult(result, termWidth);
   if (result.type === 'agent_spawned') return formatAgentSpawned(result, termWidth);
+  if (result.type === 'team_result') return formatTeamSpawn(result, termWidth);
+  if (result.type === 'agent_report_all') return formatAgentReportAll(result, termWidth);
   return formatGenericResult(result, funcName, termWidth);
+}
+
+function formatTeamSpawn(result, termWidth) {
+  const lines = [];
+  lines.push({
+    type: 'tool_status',
+    icon: '►',
+    color: '#0ea5e9',
+    content: 'team_spawn',
+    detail: chalk.hex('#737373')(`Team operation complete (${result.agents?.length || 0} agents)`),
+  });
+  return lines;
+}
+
+function formatAgentReportAll(result, termWidth) {
+  const lines = [];
+  lines.push({
+    type: 'tool_status',
+    icon: '✓',
+    color: '#3ECF8E',
+    content: 'agent_report_all',
+    detail: chalk.hex('#737373')(`Fetched reports for ${result.reports?.length || 0} agents`),
+  });
+  return lines;
 }
 
 function formatToolRunning(funcName) {

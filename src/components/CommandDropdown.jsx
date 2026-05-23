@@ -4,6 +4,10 @@ import chalk from 'chalk';
 
 const COMMANDS = [
   { cmd: '/help', desc: 'Show help' },
+  { cmd: '/team', desc: 'Select team preset' },
+  { cmd: '/agents', desc: 'List active sub-agents' },
+  { cmd: '/report', desc: 'Show sub-agent reports' },
+  { cmd: '/diff', desc: 'Show session diff log' },
   { cmd: '/clone', desc: 'Clone repository to switch workspace' },
   { cmd: '/auth', desc: 'Set GitHub token for git pushing' },
   { cmd: '/model', desc: 'Select model' },

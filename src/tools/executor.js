@@ -7,7 +7,7 @@ import {
   handleTaskUpdate, handleTaskOutput, handleTaskStop,
 } from './handlers/tasks.js';
 import { handleCronCreate, handleCronDelete, handleCronList } from './handlers/cron.js';
-import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop } from './handlers/agents.js';
+import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop, handleTeamSpawn, handleAgentReport, handleAgentReportAll } from './handlers/agents.js';
 import { handleConceptual } from './handlers/conceptual.js';
 
 const HANDLERS = {
@@ -32,6 +32,9 @@ const HANDLERS = {
   agent_list: handleAgentList,
   agent_get: handleAgentGet,
   agent_stop: handleAgentStop,
+  team_spawn: handleTeamSpawn,
+  agent_report: handleAgentReport,
+  agent_report_all: handleAgentReportAll,
 
   ask_user_question: handleConceptual,
   enter_plan_mode: handleConceptual,
