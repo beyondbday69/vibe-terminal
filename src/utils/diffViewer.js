@@ -1,17 +1,21 @@
 import chalk from 'chalk';
 import path from 'node:path';
-
-// ── Diff Viewer Constants ──────────────────────────────────────────────────────
-const C_DIM = '#888888';
-const C_GREEN = '#3ECF8E';
-const C_RED = '#EF4444';
-const C_ACCENT2 = '#D77757';
-const C_SEP = '#333333';
-const C_ACCENT = '#D77757';
-const C_WHITE = '#ffffff';
-const C_YELLOW = '#FBBF24';
-const C_CODE_BG = '#272822';
 import { SYNTAX_COLORS } from '../constants.js';
+
+// ── Diff Viewer Constants (matches design spec) ────────────────────────────────
+const C_DIM = '#888888';
+const C_GREEN = '#6db86d';         // muted green text for added
+const C_RED = '#c97070';           // muted red text for removed
+const C_GREEN_BG = '#1a2e1a';     // dark green bg for added lines
+const C_RED_BG = '#2e1a1a';       // dark red bg for removed lines
+const C_HUNK_BG = '#1a1e2e';      // hunk header bg
+const C_HUNK_FG = '#6a8abf';      // hunk header text
+const C_LINE_NUM = '#383838';     // line numbers
+const C_SEP = '#2a2a2a';
+const C_ACCENT = '#7eb8f7';
+const C_WHITE = '#f0f0f0';
+const C_YELLOW = '#d4a574';
+const C_CODE_BG = '#141414';
 
 function applySyntaxHighlighting(text) {
   let highlighted = text;
@@ -138,17 +142,17 @@ function renderCell(lineno, text, tag, codeWidth) {
 
   let result = '';
   if (tag === 'eq') {
-    result = chalk.dim.hex(C_DIM).bgHex(C_CODE_BG)(lnoStr) +
+    result = chalk.hex(C_LINE_NUM).bgHex(C_CODE_BG)(lnoStr) +
       chalk.bgHex(C_CODE_BG)('  ') +
       chalk.bgHex(C_CODE_BG)(highlightedText);
   } else if (tag === 'add') {
-    result = chalk.bold.hex(C_GREEN).bgHex(C_CODE_BG)(lnoStr) +
-      chalk.bold.hex(C_GREEN).bgHex(C_CODE_BG)(' +') +
-      chalk.bgHex(C_CODE_BG)(highlightedText);
+    result = chalk.hex(C_GREEN).bgHex(C_GREEN_BG)(lnoStr) +
+      chalk.hex(C_GREEN).bgHex(C_GREEN_BG)(' +') +
+      chalk.hex(C_GREEN).bgHex(C_GREEN_BG)(displayText);
   } else if (tag === 'del') {
-    result = chalk.bold.hex(C_RED).bgHex(C_CODE_BG)(lnoStr) +
-      chalk.bold.hex(C_RED).bgHex(C_CODE_BG)(' -') +
-      chalk.bgHex(C_CODE_BG)(highlightedText);
+    result = chalk.hex(C_RED).bgHex(C_RED_BG)(lnoStr) +
+      chalk.hex(C_RED).bgHex(C_RED_BG)(' -') +
+      chalk.hex(C_RED).bgHex(C_RED_BG)(displayText);
   }
 
   return result;

@@ -1377,10 +1377,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     return (
       <TeamSelector
         activeTeam={activeTeam}
-        onSelect={(team) => {
+        availableModels={availableModels}
+        onSelect={(team, roleModels) => {
           setActiveTeam(team);
           setShowTeamSelector(false);
-          setMessages(prev => [...prev, { role: 'system', content: `[System] Team switched to: ${team}` }]);
+          const modelInfo = roleModels && Object.keys(roleModels).length > 0
+            ? '\n' + Object.entries(roleModels).map(([r, m]) => `  ${r}: ${m}`).join('\n')
+            : '';
+          setMessages(prev => [...prev, { role: 'system', content: `[System] Team switched to: ${team}${modelInfo}` }]);
         }}
         onClose={() => setShowTeamSelector(false)}
         termWidth={termWidth}
@@ -1472,17 +1476,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
-      <Box alignItems="center">
-        <AnimatedLogo />
-        <Box flexDirection="column">
-          <Text bold color="white">Vibe Code v1.0.1</Text>
-          <Box><Text color="#a3a3a3">Active: </Text><Text bold color="#D77757">{activeModel.length > 30 ? activeModel.slice(0, 30) + '...' : activeModel}</Text></Box>
-          <Text color="#a3a3a3">{availableModels.length || '...'} models • {toolsDefinition.length} AI Tools Active</Text>
-          <Text color="#a3a3a3"><Text color="#D77757">Ctrl+M</Text> or <Text color="#D77757">/help</Text> for commands</Text>
+      <Box justifyContent="space-between">
+        <Box>
+          <Text color="#888888">  ◆ agent</Text>
+        </Box>
+        <Box>
+          <Text color="#d4a574">{activeModel.length > 20 ? activeModel.slice(0, 20) + '..' : activeModel}</Text>
+          <Text color="#444444">  |  </Text>
+          <Text color="#888888">{activeTeam}</Text>
         </Box>
       </Box>
+      <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text>
 
-      <Box flexDirection="column" flexGrow={1} marginY={1} overflow="hidden">
+      <Box flexDirection="column" flexGrow={1} marginY={0} overflow="hidden">
         {visibleLines.map((line, i) => {
           if (line.type === 'user') {
             return (
@@ -1490,36 +1496,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                 {line.lines.map((text, j) => {
                   const padLen = Math.max(0, termWidth - 4 - text.length);
                   return (
-                    <Text key={j}>{chalk.bgHex('#222222')(chalk.white(text) + ' '.repeat(padLen))}</Text>
+                    <Text key={j}>{chalk.bgHex('#141414')(chalk.hex('#f0f0f0')(text) + ' '.repeat(padLen))}</Text>
                   );
                 })}
               </Box>
             );
           } else if (line.type === 'system') {
-            return <Text key={i} color="#FBBF24">{line.content}</Text>;
+            return <Text key={i} color="#d4a574">{line.content}</Text>;
           } else if (line.type === 'reasoning_header') {
-            return <Text key={i} color="#666666" bold>{line.content}</Text>;
+            return <Text key={i} color="#444444" bold>{line.content}</Text>;
           } else if (line.type === 'reasoning') {
-            return <Text key={i} color="#666666" italic>  {line.content}</Text>;
+            return <Text key={i} color="#444444" italic>  {line.content}</Text>;
           } else if (line.type === 'assistant') {
             if (!line.content) return null;
-            return <Text key={i}>{line.isFirst ? chalk.bold('• ') : '  '}{line.content}</Text>;
+            return <Text key={i} color="#f0f0f0">{line.isFirst ? '  ' : '  '}{line.content}</Text>;
           } else if (line.type === 'tool_status') {
             const icon = chalk.hex(line.color)(line.icon);
             const detail = line.detail || '';
-            // Agent task line - show goal with strikethrough if completed
             if (line.agentId) {
               const agents = getAgents();
               const agent = agents.get(line.agentId);
               const isDone = agent && (agent.status === 'completed' || agent.status === 'failed' || agent.status === 'stopped');
               const goalText = line.agentGoal || '';
               if (isDone) {
-                return <Text key={i}>{'  '}{icon}{' '}{chalk.strikethrough.gray(goalText)}</Text>;
+                return <Text key={i}>{'  '}{icon}{' '}{chalk.strikethrough.hex('#444444')(goalText)}</Text>;
               }
-              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#D77757')(' [running]') : '') : '';
-              return <Text key={i}>{'  '}{icon}{' '}{chalk.white(goalText)}{statusLabel}</Text>;
+              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#d4a574')(' [running]') : '') : '';
+              return <Text key={i}>{'  '}{icon}{' '}{chalk.hex('#f0f0f0')(goalText)}{statusLabel}</Text>;
             }
-            return <Text key={i}>{'  '}{icon}{' '}{chalk.bold.white(line.content)}{'  '}{detail}</Text>;
+            return <Text key={i}>{'  '}{icon}{' '}{chalk.hex('#f0f0f0')(line.content)}{'  '}{detail}</Text>;
           } else if (line.type === 'tool_content') {
             return <Text key={i}>{line.content}</Text>;
           } else if (line.type === 'agent_report_card') {
@@ -1530,21 +1535,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             const totalRemoved = edits.reduce((sum, e) => sum + e.linesRemoved, 0);
             return (
               <Box key={i} flexDirection="column" marginTop={1} marginBottom={1}>
-                <Text color="#a3a3a3">  session edits — {edits.length} files changed</Text>
-                <Text color="#333333">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
+                <Text color="#888888">  session edits -- {edits.length} files changed</Text>
+                <Text color="#2a2a2a">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
                 {edits.map((e, idx) => (
                   <Box key={idx} marginLeft={2}>
                     <Box width={30}><Text color="#f0f0f0">{e.path.length > 28 ? '...' + e.path.slice(-25) : e.path}</Text></Box>
-                    <Box width={6}><Text color="#3ECF8E">+{e.linesAdded}</Text></Box>
-                    <Box width={6}><Text color="#EF4444">-{e.linesRemoved}</Text></Box>
+                    <Box width={6}><Text color="#6db86d">+{e.linesAdded}</Text></Box>
+                    <Box width={6}><Text color="#c97070">-{e.linesRemoved}</Text></Box>
                     <Text color="#c9a8f5">{e.role}</Text>
                   </Box>
                 ))}
-                <Text color="#333333">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
+                <Text color="#2a2a2a">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
                 <Box marginLeft={2}>
-                  <Box width={30}><Text color="#a3a3a3">total</Text></Box>
-                  <Box width={6}><Text color="#3ECF8E">+{totalAdded}</Text></Box>
-                  <Box width={6}><Text color="#EF4444">-{totalRemoved}</Text></Box>
+                  <Box width={30}><Text color="#888888">total</Text></Box>
+                  <Box width={6}><Text color="#6db86d">+{totalAdded}</Text></Box>
+                  <Box width={6}><Text color="#c97070">-{totalRemoved}</Text></Box>
                 </Box>
               </Box>
             );
@@ -1582,18 +1587,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         })()} />
       )}
 
-      <Box justifyContent="space-between" marginTop={1}>
-        <Text bold color="white">{displayDir}</Text>
+      <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text>
+      <Box justifyContent="space-between">
+        <Text color="#888888">{displayDir}</Text>
         <Box>
-          <Text color="#a3a3a3">Team: </Text>
-          <Text bold color="#D77757">{activeTeam}</Text>
-          <Text color="#a3a3a3">  •  Mode: </Text>
-          <Text bold color={askBeforeEdits ? '#D77757' : '#666666'}>{askBeforeEdits ? 'Ask' : 'Auto'}</Text>
-          <Text color="#a3a3a3">  •  Model: </Text>
-          <Text color="#D77757">{activeModel.length > 20 ? activeModel.slice(0, 20) + '..' : activeModel}</Text>
-          <Text color="#a3a3a3">  •  </Text>
-          <Text color={tokenUsage.used > tokenUsage.limit * 0.8 ? '#EF4444' : tokenUsage.used > tokenUsage.limit * 0.5 ? '#FBBF24' : '#3ECF8E'}>{(tokenUsage.used / 1000).toFixed(1)}k</Text>
-          <Text color="#666666">/{(tokenUsage.limit / 1000).toFixed(0)}k ctx</Text>
+          <Text color="#444444">ctx </Text>
+          <Text color={tokenUsage.used > tokenUsage.limit * 0.8 ? '#c97070' : tokenUsage.used > tokenUsage.limit * 0.5 ? '#d4a574' : '#98c99a'}>{(tokenUsage.used / 1000).toFixed(1)}k</Text>
+          <Text color="#444444">/{(tokenUsage.limit / 1000).toFixed(0)}k</Text>
+          <Text color="#444444">  |  tools {toolsDefinition.length}</Text>
+          <Text color="#444444">  |  edits {sessionEdits.length}</Text>
+          <Text color="#444444">  |  </Text>
+          <Text color={askBeforeEdits ? '#d4a574' : '#98c99a'}>{askBeforeEdits ? 'ask' : 'auto'}</Text>
         </Box>
       </Box>
     </Box>
