@@ -8,7 +8,7 @@ const TOOL_INFO = {
   edit_file: { label: 'Edit File', icon: '~', color: '#60A5FA' },
 };
 
-export const ToolConfirmation = ({ name, args, termWidth }) => {
+export const ToolConfirmation = ({ name, args, termWidth, selectedIndex = 0 }) => {
   const filepath = args.file_path || '';
   const command = args.command || '';
   const content = args.content || '';
@@ -81,10 +81,13 @@ export const ToolConfirmation = ({ name, args, termWidth }) => {
       <Text>{divider}</Text>
 
       {/* Action buttons */}
-      <Box marginTop={0} justifyContent="center" gap={2}>
-        <Text color="#3ECF8E" bold> [Y] Approve (Enter) </Text>
-        <Text color="#525252">|</Text>
-        <Text color="#EF4444" bold> [N] Reject (Esc) </Text>
+      <Box flexDirection="column" marginTop={0} paddingLeft={2}>
+        <Text color={selectedIndex === 0 ? '#3ECF8E' : '#a3a3a3'} bold={selectedIndex === 0}>
+          {selectedIndex === 0 ? '❯ ' : '  '}Approve (Enter / Y)
+        </Text>
+        <Text color={selectedIndex === 1 ? '#EF4444' : '#a3a3a3'} bold={selectedIndex === 1}>
+          {selectedIndex === 1 ? '❯ ' : '  '}Reject (Esc / N)
+        </Text>
       </Box>
     </Box>
   );

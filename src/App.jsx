@@ -126,6 +126,7 @@ const App = () => {
   const [messages, setMessages] = useState([]);
   const [askBeforeEdits, setAskBeforeEdits] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
+  const [confirmIndex, setConfirmIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = React.useRef(null);
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -329,12 +330,22 @@ const App = () => {
 
   useInput((inputChar, key) => {
     if (pendingConfirmation) {
-      if (inputChar === 'y' || inputChar === 'Y' || key.return) {
+      if (key.upArrow || key.downArrow) {
+        setConfirmIndex(prev => (prev === 0 ? 1 : 0));
+        return;
+      }
+      if (inputChar === 'y' || inputChar === 'Y') {
         pendingConfirmation.resolve({ approved: true });
         setPendingConfirmation(null);
+        setConfirmIndex(0);
       } else if (inputChar === 'n' || inputChar === 'N' || key.escape) {
         pendingConfirmation.resolve({ approved: false });
         setPendingConfirmation(null);
+        setConfirmIndex(0);
+      } else if (key.return) {
+        pendingConfirmation.resolve({ approved: confirmIndex === 0 });
+        setPendingConfirmation(null);
+        setConfirmIndex(0);
       }
       return;
     }
@@ -1438,6 +1449,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           name={pendingConfirmation.name}
           args={pendingConfirmation.args}
           termWidth={termWidth}
+          selectedIndex={confirmIndex}
         />
       ) : (
         <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
