@@ -2189,10 +2189,42 @@ export default function App() {
       } catch (e) {
         setMessages(prev => [...prev, { role: 'user', content: '/auth github ****' }, { role: 'system', content: `[Error] Failed to save GitHub token: ${e.message}` }]);
       }
+    } else if (lower === '/helpers') {
+      setHelpersEnabled(prev => {
+        const next = !prev;
+        setMessages(msgs => [...msgs, { role: 'user', content: cmd }, { role: 'system', content: `Helper agents toggled to: ${next ? 'ENABLED' : 'DISABLED'}` }]);
+        return next;
+      });
+    } else if (lower === '/cd') {
+      setShowWorkspaceSelector(true);
+    } else if (lower.startsWith('/cd ')) {
+      const targetPath = trim.slice(4).trim();
+      if (targetPath) {
+        setMessages(prev => [...prev, { role: 'user', content: cmd }]);
+        (async () => {
+          try {
+            const res = await fetch('/api/cd', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: targetPath })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              setCurrentCwd(data.path);
+              setMessages(prev => [...prev, { role: 'system', content: `[System] Switched active workspace to: ${data.path}` }]);
+              loadCodebaseFiles().catch(() => {});
+            } else {
+              setMessages(prev => [...prev, { role: 'system', content: `[Error] ${data.error || 'Failed to switch workspace'}` }]);
+            }
+          } catch (e) {
+            setMessages(prev => [...prev, { role: 'system', content: `[Error] ${e.message}` }]);
+          }
+        })();
+      }
     } else {
       setMessages(prev => [...prev, { role: 'user', content: cmd }, { role: 'system', content: `Unknown command: ${cmd}` }]);
     }
-  }, [messages, activeModel, provider, sessionId, onRefreshAgents, loadCodebaseFiles]);
+  }, [messages, activeModel, provider, sessionId, onRefreshAgents, loadCodebaseFiles, helpersEnabled, setHelpersEnabled, setShowWorkspaceSelector, setCurrentCwd]);
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e) => {
