@@ -24,12 +24,10 @@ export const AnimatedInputBox = ({ isLoading, input, selectedFile }) => {
 
   const inputLines = input.split('\n');
   const isMultiLine = inputLines.length > 1;
-  const displayText = isMultiLine && inputLines.length > 10
-    ? inputLines[0]
+  const hasTooManyLines = inputLines.length > 5;
+  const displayText = hasTooManyLines
+    ? `pasted ${inputLines.length} lines`
     : input;
-  const badge = isMultiLine && inputLines.length > 10
-    ? `Pasted ${inputLines.length}+ lines`
-    : null;
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="#555555" backgroundColor="#222222" paddingX={1} paddingY={0}>
@@ -39,8 +37,7 @@ export const AnimatedInputBox = ({ isLoading, input, selectedFile }) => {
         <Box>
           <Text color={COLORS[0]}>{'> '}</Text>
           <Text color="white">{displayText}</Text>
-          {badge && <Text color="#D77757">  [{badge}]</Text>}
-          {!badge && ghostText && <Text color="#666666">{ghostText}</Text>}
+          {!hasTooManyLines && ghostText && <Text color="#666666">{ghostText}</Text>}
           {!isMultiLine && <Text color="#666666">{'_'}</Text>}
         </Box>
       )}
