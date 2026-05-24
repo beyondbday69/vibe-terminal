@@ -1597,7 +1597,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               if (isDone) {
                 return <Text key={i}>{'  '}{icon}{' '}{chalk.strikethrough.hex('#444444')(goalText)}</Text>;
               }
-              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#d4a574')(' [running]') : '') : '';
+              const statusLabel = agent ? (agent.status === 'running' ? chalk.hex('#d4a574')(' [running]') : agent.status === 'idle' ? chalk.hex('#7eb8f7')(' [done]') : '') : '';
               return <Text key={i}>{'  '}{icon}{' '}{chalk.hex('#f0f0f0')(goalText)}{statusLabel}</Text>;
             }
             return <Text key={i}>{'  '}{icon}{' '}{chalk.hex('#f0f0f0')(line.content)}{'  '}{detail}</Text>;
@@ -1661,9 +1661,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               {activeAgents.map((agent, idx) => {
                 const roleColor = ROLE_COLORS[agent.role || 'manager'] || '#d4a574';
                 const roleIcon = ROLE_ICONS[agent.role || 'manager'] || '•';
-                const statusColor = agent.status === 'running' ? '#d4a574' : agent.status === 'idle' ? '#7eb8f7' : agent.status === 'queued' ? '#444444' : agent.status === 'failed' ? '#c97070' : '#98c99a';
-                const statusIcon = agent.status === 'running' ? '●' : agent.status === 'queued' ? '○' : agent.status === 'idle' ? '◇' : agent.status === 'failed' ? '!' : '✓';
-                const actionText = agent.status === 'running' ? (agent.lastActionDetail || 'working...') : agent.status === 'queued' ? 'waiting for manager' : agent.status === 'idle' ? 'idle' : agent.status;
+                const statusColor = agent.status === 'running' ? '#d4a574' : agent.status === 'idle' ? '#98c99a' : agent.status === 'queued' ? '#444444' : agent.status === 'failed' ? '#c97070' : '#98c99a';
+                const statusIcon = agent.status === 'running' ? '●' : agent.status === 'queued' ? '○' : agent.status === 'idle' ? '✓' : agent.status === 'failed' ? '!' : '✓';
+                const actionText = agent.status === 'running' ? (agent.lastActionDetail || 'working...') : agent.status === 'queued' ? 'waiting' : agent.status === 'idle' ? 'done' : agent.status;
                 const isExpanded = expandedAgent === agent.id;
                 const expandIcon = isExpanded ? '▾' : '▸';
                 return (
@@ -1672,7 +1672,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                       <Box width={3}><Text color="#444444">{idx + 1}</Text></Box>
                       <Box width={2}><Text color={statusColor}>{statusIcon}</Text></Box>
                       <Box width={14}><Text color={roleColor}>{roleIcon} {agent.role || 'agent'}</Text></Box>
-                      <Box width={8}><Text color={statusColor}>[{agent.status}]</Text></Box>
+                      <Box width={11}><Text color={statusColor}>[{agent.status === 'idle' ? 'done' : agent.status}]</Text></Box>
                       <Box width={4}><Text color="#444444">{Math.round((Date.now() - agent.createdAt) / 1000)}s</Text></Box>
                       <Box><Text color="#888888">  {actionText.slice(0, 40)}</Text></Box>
                       <Box marginLeft={1}><Text color="#444444">{expandIcon}</Text></Box>
