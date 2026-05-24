@@ -1,80 +1,56 @@
-# Helper Agents for Solo Mode
+# Workspace Selector UI for `/cd` Command
 
-Add lightweight, auto-triggered helper agents that run in the background during solo mode to enhance the main AI's output — without requiring the user to set up a full team.
+Create a beautiful, interactive, center-aligned Workspace Selector UI for the `/cd` command (when run without arguments), allowing users to switch, add/create, and delete workspaces.
 
 ## Concept
 
-In solo mode, the main AI handles everything. Helper agents are **automatic background assistants** that trigger after specific actions to provide extra value:
+Currently, `/cd <path>` switches the current directory, but there is no way to manage a collection of favorite workspaces or view them interactively. 
 
-| Helper | Triggers After | What It Does |
-|--------|---------------|--------------|
-| **reviewer** | `write_file` or `edit_file` completes | Reads the changed file, checks for bugs/issues, posts a brief review inline |
-| **researcher** | main AI calls `web_search` | Runs a deeper parallel search, adds supplementary context |
-| **verifier** | `run_bash` exits with error | Reads error output + relevant files, suggests a fix |
+We will introduce a `WorkspaceSelector` UI component that activates when `/cd` is typed without arguments. It will persist favorite workspaces in the user's config file (`~/.vibe-code/config.json`).
 
-These run as **fire-and-forget background agents** using the existing agent infrastructure. They:
-- Spawn automatically (no user command needed)
-- Use a lightweight single-iteration loop (1 API call, no tools)
-- Post their result as a system message in the chat
-- Show as a subtle row in the UI (dimmed, compact)
-- Don't waste tokens — they make exactly 1 API call each, no tool loop
+### UI Features
 
-## Features
-
-1. **Auto-review on file changes** — After the main AI writes/edits a file, a reviewer agent reads the file and posts a 2-3 line review (bugs, style, suggestions). Color-coded and collapsible.
-2. **Auto-verify on bash errors** — When `run_bash` exits non-zero, a verifier agent reads the error + context and suggests a fix before the main AI retries.
-3. **Toggleable via `/helpers` command** — Users can enable/disable helpers. Disabled by default to avoid surprise token usage.
-4. **Compact UI row** — Helper agents show as a single dimmed line below the main chat: `◇ reviewer  checking utils.js...` then fade to the result.
-5. **Solo helpers don't use tools** — They get the file content injected into their prompt and return plain text. Zero tool calls = minimal tokens.
+1. **Center-aligned Card**: Matches the rounded borders and styling of the `TeamSelector` component.
+2. **List Workspaces**: Shows all favorite workspaces with a pointer `▸` indicating the current selection.
+3. **Switch Workspaces**: Use `up` and `down` arrow keys to highlight a workspace, and press `Enter` to switch to it immediately.
+4. **Create / Add Workspace**: Press `c` (or `C`) to open an input field inside the card to add a new directory path. Pressing `Enter` adds it to the list (and validates that it exists).
+5. **Delete Workspace**: Press `d` (or `D` or `Delete` key) to remove the highlighted workspace from the list.
+6. **Esc to Close**: Press `Esc` to return to the terminal main loop.
 
 ## Proposed Changes
 
-### Constants & Config
-
-#### [MODIFY] [constants.js](file:///home/swapnilkolate044/vibe-terminal/src/constants.js)
-- Add `HELPER_AGENT_PROMPTS` — system prompts for each helper type (reviewer, verifier)
-- Add `ROLE_COLORS` and `ROLE_ICONS` entries for `helper-reviewer` and `helper-verifier`
-
----
-
-### Agent Infrastructure
-
-#### [MODIFY] [agents.js](file:///home/swapnilkolate044/vibe-terminal/src/tools/handlers/agents.js)
-- Add `spawnHelperAgent(type, context)` function that:
-  - Creates an agent with `isHelper: true` flag
-  - Uses a simplified single-call AI loop (no tool access, 1 iteration max)
-  - Posts result to `userMessageQueue` as a helper message
-  - Auto-sets status to `done` after the single call
-- Helper agents use `role: 'helper-reviewer'` or `'helper-verifier'`
-
----
-
-### Main App Logic
+### Configuration Persistence
 
 #### [MODIFY] [App.jsx](file:///home/swapnilkolate044/vibe-terminal/src/App.jsx)
-- Add `helpersEnabled` state (default: `false`)
-- Add `/helpers` slash command to toggle
-- After tool execution in the main loop:
-  - If `write_file`/`edit_file` succeeded → spawn `helper-reviewer` with the file content
-  - If `run_bash` failed (exit code != 0) → spawn `helper-verifier` with the error output
-- In the agent polling `useEffect`, handle helper agent results:
-  - Show as a special styled system message (dimmed, with role icon)
-- In the agent panel UI: show helpers as compact dimmed rows
-- Filter helpers from the "X running" counter in footer (they're brief, don't clutter)
+- Load `workspaces` array from config on startup (defaults to an array containing `process.cwd()`).
+- Add `/cd` command handler that:
+  - If no argument → opens the `WorkspaceSelector` UI.
+  - If path argument → switches to it directly and adds it to favorite workspaces list if not already present.
+- Implement `handleAddWorkspace`, `handleDeleteWorkspace`, and `handleSwitchWorkspace` logic to update config and state.
 
 ---
 
-### Slash Command
+### UI Components
+
+#### [NEW] [WorkspaceSelector.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/WorkspaceSelector.jsx)
+- Create a round-bordered card in Ink.
+- Support key navigation (`upArrow`, `downArrow`, `escape`, `return`).
+- Add state `isAdding` (boolean) and `newPathInput` (string) to capture text when adding a new workspace directory.
+- Render helper keys in footer: `[c] add  [d] delete  [enter] switch  [esc] back`
+
+---
+
+### Command Dropdown
 
 #### [MODIFY] [CommandDropdown.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/CommandDropdown.jsx)
-- Add `/helpers` command entry: `"Toggle helper agents (auto-review, auto-verify)"`
+- Update `/cd` description to: `"Change or switch workspaces interactively"`.
 
 ## Verification Plan
 
 ### Manual Verification
-- Run the app, enable `/helpers`, write a file → verify reviewer fires and posts a review
-- Run a bash command that fails → verify verifier fires and posts a suggestion
-- Confirm helpers show in the agent panel as dimmed rows
-- Confirm `/helpers` toggles them on/off
-- Confirm helpers don't fire when disabled
-- Confirm each helper makes exactly 1 API call (check agent iterations)
+- Run the app, type `/cd` and press Enter → verify the Workspace Selector card opens.
+- Verify arrow keys highlight different workspaces.
+- Press `c`, type a path, press Enter → verify it adds to the list and persists.
+- Press `d` → verify the workspace is removed.
+- Press `Enter` on a workspace → verify the workspace switches and the card closes.
+- Verify `Esc` closes the selector card.

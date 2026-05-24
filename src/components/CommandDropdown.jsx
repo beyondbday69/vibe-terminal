@@ -9,6 +9,7 @@ const COMMANDS = [
   { cmd: '/report', desc: 'Show sub-agent reports' },
   { cmd: '/diff', desc: 'Show session diff log' },
   { cmd: '/clone', desc: 'Clone repository to switch workspace' },
+  { cmd: '/cd', desc: 'Change or switch workspaces interactively' },
   { cmd: '/auth', desc: 'Set GitHub token for git pushing' },
   { cmd: '/model', desc: 'Select model' },
   { cmd: '/apikey', desc: 'Set API key' },

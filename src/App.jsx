@@ -63,6 +63,7 @@ import { ModelSelector } from './components/ModelSelector.jsx';
 import { SessionPicker } from './components/SessionPicker.jsx';
 import { CommandDropdown, COMMANDS } from './components/CommandDropdown.jsx';
 import { ToolConfirmation } from './components/ToolConfirmation.jsx';
+import { WorkspaceSelector } from './components/WorkspaceSelector.jsx';
 
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
@@ -153,6 +154,8 @@ const App = () => {
   const [activeAgents, setActiveAgents] = useState([]);
   const [expandedAgent, setExpandedAgent] = useState(null);
   const [helpersEnabled, setHelpersEnabled] = useState(false);
+  const [workspaces, setWorkspaces] = useState([]);
+  const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -357,6 +360,14 @@ const App = () => {
           setCurrentCwd(config.activeWorkspace);
         } catch {}
       }
+
+      let loadedWorkspaces = config.workspaces || [];
+      const initialWp = config.activeWorkspace || process.cwd();
+      if (!loadedWorkspaces.includes(initialWp)) {
+        loadedWorkspaces = [...loadedWorkspaces, initialWp];
+        saveConfig({ workspaces: loadedWorkspaces });
+      }
+      setWorkspaces(loadedWorkspaces);
     })();
   }, []);
 
@@ -1076,7 +1087,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         setInput('');
         return;
       } else if (lowerQuery === '/cd') {
-        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /cd <path>' }]);
+        setInput('');
+        setShowWorkspaceSelector(true);
+        return;
       } else if (lowerQuery.startsWith('/cd ')) {
         const targetDir = trimmedQuery.slice(4).trim();
         try {
@@ -1087,7 +1100,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           }
           process.chdir(resolvedPath);
           setCurrentCwd(resolvedPath);
-          await saveConfig({ activeWorkspace: resolvedPath });
+          
+          let nextWps = [...workspaces];
+          if (!nextWps.includes(resolvedPath)) {
+            nextWps.push(resolvedPath);
+            setWorkspaces(nextWps);
+          }
+
+          await saveConfig({ activeWorkspace: resolvedPath, workspaces: nextWps });
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Switched workspace to: ${resolvedPath}` }]);
         } catch (err) {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Failed to change directory: ${err.message}` }]);
@@ -1507,6 +1527,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           setMessages(prev => [...prev, { role: 'system', content: `[System] Team switched to: ${team}${modelInfo}` }]);
         }}
         onClose={() => setShowTeamSelector(false)}
+        termWidth={termWidth}
+        termHeight={termHeight}
+      />
+    );
+  }
+
+  if (showWorkspaceSelector) {
+    return (
+      <WorkspaceSelector
+        workspaces={workspaces}
+        activeWorkspace={currentCwd}
+        onSelect={async (wpPath) => {
+          try {
+            process.chdir(wpPath);
+            setCurrentCwd(wpPath);
+            await saveConfig({ activeWorkspace: wpPath });
+            setMessages(prev => [...prev, { role: 'system', content: `[System] Switched workspace to: ${wpPath}` }]);
+          } catch (err) {
+            setMessages(prev => [...prev, { role: 'system', content: `[Error] Failed to change directory: ${err.message}` }]);
+          }
+          setShowWorkspaceSelector(false);
+        }}
+        onCreate={async (wpPath) => {
+          const resolved = path.resolve(process.cwd(), wpPath);
+          const stat = await fs.stat(resolved);
+          if (!stat.isDirectory()) {
+            throw new Error('Path is not a directory');
+          }
+          if (workspaces.includes(resolved)) {
+            throw new Error('Workspace already exists in the list');
+          }
+          const nextWps = [...workspaces, resolved];
+          setWorkspaces(nextWps);
+          await saveConfig({ workspaces: nextWps });
+        }}
+        onDelete={async (wpPath) => {
+          const nextWps = workspaces.filter(w => w !== wpPath);
+          setWorkspaces(nextWps);
+          await saveConfig({ workspaces: nextWps });
+        }}
+        onClose={() => setShowWorkspaceSelector(false)}
         termWidth={termWidth}
         termHeight={termHeight}
       />

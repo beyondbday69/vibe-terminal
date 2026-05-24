@@ -1,34 +1,48 @@
-# Walkthrough: Solo Mode Helper Agents
+# Walkthrough: Solo Mode Helpers & Workspace Selector UI
 
-We have successfully implemented lightweight, auto-triggered background helper agents for solo mode in `vibe-terminal`.
+We have successfully implemented and polished two major features in `vibe-terminal`:
+1. **Solo Mode Helper Agents**: Lightweight background reviewer and verifier assistants.
+2. **Interactive Workspace Selector**: A beautiful, center-aligned console card to manage, switch, create, and delete active workspaces using the `/cd` command.
 
-## Changes Made
+---
 
-### 1. Constants & Config
-- **[constants.js](file:///home/swapnilkolate044/vibe-terminal/src/constants.js)**:
-  - Added role colors and icons for `helper-reviewer` (◉ in soft green) and `helper-verifier` (⚠️ in soft red).
+## Part 1: Solo Mode Helper Agents
 
-### 2. Spawning Infrastructure
-- **[agents.js](file:///home/swapnilkolate044/vibe-terminal/src/tools/handlers/agents.js)**:
-  - Added lightweight system prompts for `'helper-reviewer'` and `'helper-verifier'` inside `ROLE_SYSTEM_PROMPTS`.
-  - Implemented `spawnHelperAgent(role, goal, model)` which creates a fire-and-forget helper agent with `isHelper: true` that completes in exactly 1 iteration with zero tool calls to minimize token usage.
+### Changes Made
+- **[constants.js](file:///home/swapnilkolate044/vibe-terminal/src/constants.js)**: Configured role colors/icons for `helper-reviewer` (◉ in soft green) and `helper-verifier` (⚠️ in soft red).
+- **[agents.js](file:///home/swapnilkolate044/vibe-terminal/src/tools/handlers/agents.js)**: Added optimized prompts and implemented `spawnHelperAgent` for 1-iteration fire-and-forget loops without tool calls to save tokens.
+- **[CommandDropdown.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/CommandDropdown.jsx)**: Registered `/helpers` toggle command.
+- **[App.jsx](file:///home/swapnilkolate044/vibe-terminal/src/App.jsx)**: Integrated triggers (on file edits & bash failures), compact running indicators below the chat box, dimmed styles in the active agent panel, and filtered footer indicators.
 
-### 3. CLI Command
+---
+
+## Part 2: Interactive Workspace Selector UI
+
+### Changes Made
+
+- **[WorkspaceSelector.jsx [NEW]](file:///home/swapnilkolate044/vibe-terminal/src/components/WorkspaceSelector.jsx)**:
+  - Created a round-bordered card in Ink.
+  - Implemented keyboard navigation (`upArrow`, `downArrow`, `return`, `escape`).
+  - Added shortcut mappings: `[c]` to create (add) a workspace, `[d]` to delete the selected workspace.
+  - Included smart home-directory path formatting (replaces `/home/swapnilkolate044` with `~`) and custom path error validation.
+
 - **[CommandDropdown.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/CommandDropdown.jsx)**:
-  - Registered `/helpers` command in the autocomplete list: `"Toggle helper agents (auto-review, auto-verify)"`.
+  - Registered `/cd` in the autocomplete commands dropdown: `"Change or switch workspaces interactively"`.
 
-### 4. Main App & UI Integration
 - **[App.jsx](file:///home/swapnilkolate044/vibe-terminal/src/App.jsx)**:
-  - Imported `spawnHelperAgent`.
-  - Added `helpersEnabled` state (disabled by default).
-  - Handled `/helpers` toggle command in the main input parser.
-  - Auto-triggered reviewer/verifier agents in solo mode after successful file edits or failed bash commands.
-  - Rendered helper agent outcomes with dimmed text and appropriate icons in the main chat log.
-  - Styled helper agent rows in the active agent panel as compact dimmed rows.
-  - Filtered helper agents from the active running agent count in the status footer to avoid cluttering.
+  - Added `workspaces` array state and loaded active workspaces from user configuration (`~/.vibe-code/config.json`).
+  - Redefined `/cd` command:
+    - Running `/cd` without parameters triggers the interactive Workspace Selector UI modal.
+    - Running `/cd <path>` switches directly to the specified directory and automatically registers it as a favorite workspace.
+  - Wired Workspace Selector callbacks to state and configuration (adds, deletes, and switches workspaces dynamically).
+
+---
 
 ## Verification
 
-- Verified syntax check on modified modules using `node --check` successfully.
-- Toggling `/helpers` works flawlessly in the command menu.
-- Reviewer and verifier agents auto-spawn cleanly as dimmed non-intrusive processes in the helper panel and output their lightweight inline suggestions into the console.
+- **Workspace Selector**:
+  - Running `/cd` successfully brings up the Switch Workspace panel.
+  - Arrow key navigation works flawlessly.
+  - Pressing `c` and typing a path validates the directory existence, registers it in the list, and persists it in `config.json`.
+  - Pressing `d` deletes the directory from favorites and updates the saved state.
+  - Pressing `Enter` changes directories and closes the modal cleanly.
