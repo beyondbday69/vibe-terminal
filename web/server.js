@@ -123,6 +123,18 @@ const AGENT_TYPES = {
     systemPrompt: 'You are a debugging agent. Your goal is to investigate issues and fix bugs. Identify root causes, understand error patterns, and implement proper fixes.',
     color: 'red',
   },
+  'helper-reviewer': {
+    name: 'helper-reviewer',
+    description: 'Code reviewer',
+    systemPrompt: 'You are an automated lightweight code reviewer. Your job is to review the code changes made in a single file and provide an extremely concise, 2-3 line review. Highlight potential bugs, stylistic issues, or quick improvements. Be polite but direct. Do not write full files, just give brief, actionable feedback.',
+    color: 'green',
+  },
+  'helper-verifier': {
+    name: 'helper-verifier',
+    description: 'Error verifier',
+    systemPrompt: 'You are an automated lightweight error verifier. Your job is to inspect a bash command failure (stderr/stdout) and suggest a direct, concrete fix. Be extremely concise (2-3 lines). Show the exact command or code change needed to fix the error.',
+    color: 'red',
+  },
 };
 
 function summarizeResult(funcName, result) {
@@ -146,17 +158,22 @@ function shortenPath(p) {
   return p;
 }
 
-async function callAgentAI(messages) {
+async function callAgentAI(messages, toolsOverride = undefined) {
   const config = await loadConfig();
   const env = await loadEnv();
   const provider = config.provider || { name: 'opencode', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: '' };
   const model = config.activeModel || 'kimi-k2.6';
   const key = provider.apiKey || env.OPENAI_API_KEY || '';
 
+  const bodyData = { model, messages, stream: false };
+  if (toolsOverride !== null) {
+    bodyData.tools = toolsOverride || agentToolsDef;
+  }
+
   const res = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(key ? { 'Authorization': `Bearer ${key}` } : {}) },
-    body: JSON.stringify({ model, messages, tools: agentToolsDef, stream: false }),
+    body: JSON.stringify(bodyData),
   });
 
   if (!res.ok) {
@@ -177,7 +194,7 @@ const agentToolsDef = [
   { type: 'function', function: { name: 'grep_search', description: 'Search file contents.', parameters: { type: 'object', properties: { search_term: { type: 'string' }, path: { type: 'string' } }, required: ['search_term'] } } },
   { type: 'function', function: { name: 'web_fetch', description: 'Fetch a URL.', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } } },
   { type: 'function', function: { name: 'web_search', description: 'Search the web.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
-  { type: 'function', function: { name: 'agent_spawn', description: 'Spawn a sub-agent. Optional: specify type (explore, plan, verify, code, debug) for specialized behavior.', parameters: { type: 'object', properties: { goal: { type: 'string' }, type: { type: 'string', enum: ['explore', 'plan', 'verify', 'code', 'debug'], description: 'Agent type for specialized behavior' } }, required: ['goal'] } } },
+  { type: 'function', function: { name: 'agent_spawn', description: 'Spawn a sub-agent. Optional: specify type (explore, plan, verify, code, debug) for specialized behavior.', parameters: { type: 'object', properties: { goal: { type: 'string' }, type: { type: 'string', description: 'Agent type for specialized behavior' } }, required: ['goal'] } } },
   { type: 'function', function: { name: 'agent_list', description: 'List agents.' } },
   { type: 'function', function: { name: 'agent_get', description: 'Get agent status.', parameters: { type: 'object', properties: { agent_id: { type: 'string' } }, required: ['agent_id'] } } },
 ];
@@ -190,12 +207,13 @@ async function runAgentLoop(agent, systemPrompt) {
   ];
 
   try {
+    const isHelper = agent.type && agent.type.startsWith('helper-');
     while (agent.status === 'running') {
       agent.iterations++;
-      const response = await callAgentAI(conversation);
+      const response = await callAgentAI(conversation, isHelper ? null : agentToolsDef);
       conversation.push(response);
 
-      if (response.tool_calls && response.tool_calls.length > 0) {
+      if (response.tool_calls && response.tool_calls.length > 0 && !isHelper) {
         for (const call of response.tool_calls) {
           const funcName = call.function.name;
           let funcArgs;
@@ -448,6 +466,39 @@ app.get('/api/files', async (req, res) => {
   const cwd = process.cwd();
   const rels = files.map(f => path.relative(cwd, f)).sort();
   res.json(rels);
+});
+
+app.get('/api/workspaces', async (req, res) => {
+  try {
+    const parentDir = path.dirname(process.cwd());
+    const entries = await fs.readdir(parentDir, { withFileTypes: true });
+    const dirs = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+      .map(e => path.join(parentDir, e.name));
+    res.json(dirs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cd', async (req, res) => {
+  const { path: wpPath, validateOnly } = req.body;
+  if (!wpPath) return res.status(400).json({ error: 'No path provided' });
+  try {
+    const resolved = path.resolve(process.cwd(), wpPath);
+    const stat = await fs.stat(resolved);
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ error: 'Path is not a directory' });
+    }
+    if (validateOnly) {
+      return res.json({ ok: true, path: resolved });
+    }
+    process.chdir(resolved);
+    await saveConfig({ activeWorkspace: resolved });
+    res.json({ ok: true, path: resolved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/config', async (req, res) => {

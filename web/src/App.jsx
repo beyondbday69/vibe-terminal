@@ -235,6 +235,384 @@ function AnimatedLogo({ header }) {
   );
 }
 
+// ── Workspace Selector Overlay ───────────────────────────────────────────────
+function WorkspaceSelectorOverlay({ onClose, currentCwd, homeDir }) {
+  const [activeTab, setActiveTab] = useState('favorites'); // 'favorites' or 'available'
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newPathInput, setNewPathInput] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [favorites, setFavorites] = useState([]);
+  const [available, setAvailable] = useState([]);
+
+  // Load favorites & available
+  const loadData = useCallback(async () => {
+    try {
+      const configRes = await fetch('/api/config');
+      const configData = await configRes.json();
+      if (configData.config?.workspaces) {
+        setFavorites(configData.config.workspaces);
+      }
+      
+      const availableRes = await fetch('/api/workspaces');
+      const availableData = await availableRes.json();
+      setAvailable(availableData || []);
+    } catch (e) {
+      console.error('Failed to load workspaces:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const activeList = activeTab === 'favorites' ? favorites : available;
+
+  const handleSelect = async (path) => {
+    try {
+      const res = await fetch('/api/cd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onClose(data.path);
+      } else {
+        setErrorMessage(data.error || 'Failed to switch workspace');
+      }
+    } catch (err) {
+      setErrorMessage(err.message);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!newPathInput.trim()) {
+      setErrorMessage('Path cannot be empty');
+      return;
+    }
+    try {
+      // Validate path on the backend first
+      const valRes = await fetch('/api/cd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: newPathInput.trim(), validateOnly: true })
+      });
+      const valData = await valRes.json();
+      if (!valRes.ok) {
+        setErrorMessage(valData.error || 'Invalid path');
+        return;
+      }
+
+      const resolved = valData.path;
+      if (favorites.includes(resolved)) {
+        setErrorMessage('Workspace already exists in favorites');
+        return;
+      }
+
+      const nextWps = [...favorites, resolved];
+      const saveRes = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaces: nextWps })
+      });
+      if (saveRes.ok) {
+        setFavorites(nextWps);
+        setIsAdding(false);
+        setNewPathInput('');
+        setErrorMessage('');
+      } else {
+        setErrorMessage('Failed to save workspace');
+      }
+    } catch (err) {
+      setErrorMessage(err.message);
+    }
+  };
+
+  const handleDelete = async (pathToDelete) => {
+    try {
+      const nextWps = favorites.filter(w => w !== pathToDelete);
+      const saveRes = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaces: nextWps })
+      });
+      if (saveRes.ok) {
+        setFavorites(nextWps);
+        setSelectedIndex(prev => Math.max(0, Math.min(prev, nextWps.length - 1)));
+      }
+    } catch (err) {
+      console.error('Failed to delete workspace:', err);
+    }
+  };
+
+  const handleAddFavorite = async (pathToAdd) => {
+    if (favorites.includes(pathToAdd)) return;
+    try {
+      const nextWps = [...favorites, pathToAdd];
+      const saveRes = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaces: nextWps })
+      });
+      if (saveRes.ok) {
+        setFavorites(nextWps);
+      }
+    } catch (err) {
+      console.error('Failed to add favorite:', err);
+    }
+  };
+
+  const formatPath = (p) => {
+    if (!p) return '';
+    if (homeDir && p.startsWith(homeDir)) {
+      return '~' + p.slice(homeDir.length);
+    }
+    return p;
+  };
+
+  const handleKeyDown = (e) => {
+    if (isAdding) {
+      if (e.key === 'Escape') {
+        setIsAdding(false);
+        setNewPathInput('');
+        setErrorMessage('');
+        e.stopPropagation();
+      }
+      if (e.key === 'Enter') {
+        handleCreate();
+        e.stopPropagation();
+      }
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      onClose();
+      e.stopPropagation();
+    }
+    if (e.key === 'ArrowLeft') {
+      setActiveTab('favorites');
+      setSelectedIndex(0);
+      e.preventDefault();
+    }
+    if (e.key === 'ArrowRight') {
+      setActiveTab('available');
+      setSelectedIndex(0);
+      e.preventDefault();
+    }
+    if (e.key === 'ArrowUp') {
+      setSelectedIndex(prev => Math.max(0, prev - 1));
+      e.preventDefault();
+    }
+    if (e.key === 'ArrowDown') {
+      setSelectedIndex(prev => Math.min(activeList.length - 1, prev + 1));
+      e.preventDefault();
+    }
+    if (e.key === 'Enter') {
+      if (activeList.length > 0) {
+        handleSelect(activeList[selectedIndex]);
+      }
+      e.preventDefault();
+    }
+
+    // Shortcuts
+    if (activeTab === 'favorites') {
+      if (e.key.toLowerCase() === 'c') {
+        setIsAdding(true);
+        setNewPathInput('');
+        setErrorMessage('');
+        e.preventDefault();
+      }
+      if (e.key.toLowerCase() === 'd' || e.key === 'Delete') {
+        if (favorites.length > 0) {
+          handleDelete(favorites[selectedIndex]);
+        }
+        e.preventDefault();
+      }
+    } else if (activeTab === 'available') {
+      if (e.key.toLowerCase() === 'f') {
+        if (available.length > 0) {
+          handleAddFavorite(available[selectedIndex]);
+        }
+        e.preventDefault();
+      }
+    }
+  };
+
+  // Focus modal container on mount to catch keyboard events
+  const containerRef = useRef(null);
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="overlay" onClick={() => onClose()}>
+      <div
+        ref={containerRef}
+        className="overlay-box"
+        style={{ maxWidth: 600, outline: 'none' }}
+        tabIndex={0}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="overlay-header">
+          <span className="title">switch workspace</span>
+          <span className="hint">esc to back</span>
+        </div>
+
+        {/* Tab Headers */}
+        <div style={{ display: 'flex', gap: '20px', margin: '16px 0', borderBottom: '1px solid var(--border)', width: '100%', paddingBottom: '8px', justifyContent: 'center' }}>
+          <span
+            onClick={() => { setActiveTab('favorites'); setSelectedIndex(0); }}
+            style={{
+              cursor: 'pointer',
+              color: activeTab === 'favorites' ? 'var(--accent)' : 'var(--text-muted)',
+              fontWeight: activeTab === 'favorites' ? 'bold' : 'normal',
+              borderBottom: activeTab === 'favorites' ? '2px solid var(--accent)' : 'none',
+              paddingBottom: '6px'
+            }}
+          >
+            {activeTab === 'favorites' ? '[favorites]' : ' favorites '}
+          </span>
+          <span
+            onClick={() => { setActiveTab('available'); setSelectedIndex(0); }}
+            style={{
+              cursor: 'pointer',
+              color: activeTab === 'available' ? 'var(--accent)' : 'var(--text-muted)',
+              fontWeight: activeTab === 'available' ? 'bold' : 'normal',
+              borderBottom: activeTab === 'available' ? '2px solid var(--accent)' : 'none',
+              paddingBottom: '6px'
+            }}
+          >
+            {activeTab === 'available' ? '[available]' : ' available '}
+          </span>
+        </div>
+
+        {/* List of Workspaces */}
+        <div className="overlay-list" style={{ width: '100%', maxHeight: '300px', overflowY: 'auto', margin: '8px 0' }}>
+          {activeList.length === 0 ? (
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              {activeTab === 'favorites'
+                ? 'No saved workspaces. Press [C] or click below to add one.'
+                : 'No neighbor workspaces discovered.'}
+            </div>
+          ) : (
+            activeList.map((p, i) => {
+              const active = i === selectedIndex;
+              const isActiveWorkspace = p === currentCwd;
+              const isAlreadyFavorite = activeTab === 'available' && favorites.includes(p);
+
+              return (
+                <div
+                  key={p}
+                  className={`overlay-item ${active ? 'selected' : ''}`}
+                  onClick={() => { setSelectedIndex(i); handleSelect(p); }}
+                  onMouseEnter={() => setSelectedIndex(i)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    background: active ? 'rgba(215, 119, 87, 0.15)' : 'transparent',
+                    border: active ? '1px solid var(--accent)' : '1px solid transparent',
+                  }}
+                >
+                  <span style={{
+                    fontWeight: active ? 'bold' : 'normal',
+                    color: active
+                      ? 'var(--accent)'
+                      : isActiveWorkspace
+                        ? 'var(--green)'
+                        : activeTab === 'favorites'
+                          ? '#ffffff'
+                          : '#cccccc'
+                  }}>
+                    {active ? '▸ ' : '  '}{formatPath(p)}{isAlreadyFavorite ? ' ★' : ''}
+                  </span>
+                  {isActiveWorkspace && (
+                    <span style={{ color: 'var(--green)', fontSize: '12px' }}>(active)</span>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Add path input section */}
+        {isAdding && (
+          <div style={{ width: '100%', border: '1px solid var(--accent)', borderRadius: '6px', padding: '12px', margin: '12px 0', background: 'var(--bg-light)' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ color: 'var(--accent)', fontSize: '13px', whiteSpace: 'nowrap' }}>Add favorite path:</span>
+              <input
+                type="text"
+                value={newPathInput}
+                onChange={e => { setNewPathInput(e.target.value); setErrorMessage(''); }}
+                placeholder="/path/to/project"
+                style={{
+                  flex: 1,
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  color: 'white',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  outline: 'none',
+                  fontSize: '13px'
+                }}
+                autoFocus
+              />
+            </div>
+            {errorMessage && (
+              <div style={{ color: 'var(--red)', fontSize: '12px', marginTop: '8px' }}>
+                Error: {errorMessage}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+              <span>Press [Enter] to save, [Esc] to cancel</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  className="preset-btn active"
+                  style={{ padding: '2px 8px', fontSize: '11px' }}
+                  onClick={handleCreate}
+                >
+                  Save
+                </button>
+                <button
+                  className="preset-btn"
+                  style={{ padding: '2px 8px', fontSize: '11px' }}
+                  onClick={() => { setIsAdding(false); setNewPathInput(''); setErrorMessage(''); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Footer info & action buttons */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          <div>
+            {activeTab === 'favorites' ? (
+              <span style={{ display: 'flex', gap: '12px' }}>
+                <span style={{ cursor: 'pointer' }} onClick={() => { setIsAdding(true); setErrorMessage(''); }}><strong style={{ color: 'var(--accent)' }}>C</strong> add</span>
+                {favorites.length > 0 && (
+                  <span style={{ cursor: 'pointer' }} onClick={() => handleDelete(favorites[selectedIndex])}><strong style={{ color: 'var(--accent)' }}>D</strong> delete</span>
+                )}
+              </span>
+            ) : (
+              available.length > 0 && (
+                <span style={{ cursor: 'pointer' }} onClick={() => handleAddFavorite(available[selectedIndex])}><strong style={{ color: 'var(--accent)' }}>F</strong> favorite</span>
+              )
+            )}
+          </div>
+          <span>◄ / ► switch tabs</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WelcomeScreen() {
   const [tagline, setTagline] = useState(() => TAGLINES[Math.floor(Math.random() * TAGLINES.length)]);
 
@@ -1864,6 +2242,40 @@ export default function App() {
               ))}
             </div>
           )}
+
+          {pastedMultilineText && (
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                background: 'rgba(215, 119, 87, 0.15)',
+                border: '1px solid rgba(215, 119, 87, 0.3)',
+                color: 'var(--accent)',
+                padding: '4px 10px',
+                borderRadius: '16px',
+                fontSize: '12px',
+                gap: '6px',
+              }}>
+                <span>📋 Pasted {pastedMultilineText.split('\n').length} lines</span>
+                <button
+                  onClick={() => setPastedMultilineText(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--accent)',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    lineHeight: '1',
+                    padding: '0 2px',
+                    fontWeight: 'bold',
+                    outline: 'none',
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          )}
           
           <div className="ghost-input-container">
             <span className="ghost-text" ref={ghostRef} />
@@ -1872,6 +2284,14 @@ export default function App() {
               className="prompt-input"
               value={input}
               onChange={e => setInput(e.target.value)}
+              onPaste={e => {
+                const text = e.clipboardData.getData('text');
+                const lines = text.split('\n');
+                if (lines.length > 5) {
+                  e.preventDefault();
+                  setPastedMultilineText(text);
+                }
+              }}
               placeholder="What to do first? Ask about this codebase..."
               autoFocus
             />
