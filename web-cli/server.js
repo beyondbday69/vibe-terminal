@@ -30,7 +30,7 @@ wss.on('connection', (ws) => {
 
   if (pty) {
     try {
-      cliProcess = pty.spawn('npm', ['start'], {
+      cliProcess = pty.spawn('npx', ['tsx', 'src/index.jsx'], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
@@ -54,7 +54,7 @@ wss.on('connection', (ws) => {
   // Fallback to standard child_process if node-pty is missing or failed
   if (!cliProcess) {
     console.log('Spawning process using standard child_process spawn fallback');
-    cliProcess = spawn('npm', ['start'], {
+    cliProcess = spawn('npx', ['tsx', 'src/index.jsx'], {
       cwd: ROOT_DIR,
       env,
       stdio: ['pipe', 'pipe', 'pipe']
@@ -76,7 +76,7 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (message) => {
     try {
-      const msg = JSON.parse(message);
+      const msg = JSON.parse(message.toString());
       if (msg.type === 'input') {
         if (pty && cliProcess.write) {
           cliProcess.write(msg.data);
