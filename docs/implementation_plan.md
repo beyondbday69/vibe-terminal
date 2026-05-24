@@ -1,56 +1,44 @@
-# Workspace Selector UI for `/cd` Command
+# Available Workspaces Selection in Workspace Selector
 
-Create a beautiful, interactive, center-aligned Workspace Selector UI for the `/cd` command (when run without arguments), allowing users to switch, add/create, and delete workspaces.
+Enhance the `/cd` Workspace Selector UI to automatically discover and display neighboring workspace directories (siblings of the current directory) in a dedicated "Available" tab, styled with keyboard-driven tab switching.
 
 ## Concept
 
-Currently, `/cd <path>` switches the current directory, but there is no way to manage a collection of favorite workspaces or view them interactively. 
+Currently, the Workspace Selector only displays a flat list of favorite workspaces. To make switching between active projects effortless, we will introduce a tabbed interface:
 
-We will introduce a `WorkspaceSelector` UI component that activates when `/cd` is typed without arguments. It will persist favorite workspaces in the user's config file (`~/.vibe-code/config.json`).
+1. **Favorites Tab**: Manually registered directories. Allows adding (`[c]`) and deleting (`[d]`).
+2. **Available Tab**: Automatically scanned sibling directories in the parent folder of the current workspace.
 
-### UI Features
+### UI & Navigation Enhancements
 
-1. **Center-aligned Card**: Matches the rounded borders and styling of the `TeamSelector` component.
-2. **List Workspaces**: Shows all favorite workspaces with a pointer `▸` indicating the current selection.
-3. **Switch Workspaces**: Use `up` and `down` arrow keys to highlight a workspace, and press `Enter` to switch to it immediately.
-4. **Create / Add Workspace**: Press `c` (or `C`) to open an input field inside the card to add a new directory path. Pressing `Enter` adds it to the list (and validates that it exists).
-5. **Delete Workspace**: Press `d` (or `D` or `Delete` key) to remove the highlighted workspace from the list.
-6. **Esc to Close**: Press `Esc` to return to the terminal main loop.
+- **Tabs**: Switch between `[favorites]` and `[available]` using the `left` and `right` arrow keys.
+- **Auto-Discovery**: On opening `/cd`, the app scans the parent folder of the current active workspace for other non-hidden directories.
+- **Add to Favorites Shortcut**: In the "Available" tab, pressing `f` (or `F`) instantly registers the highlighted neighboring directory as a favorite.
+- **Navigation**: Arrow `up` and `down` navigates the active list. `Enter` switches to the highlighted directory.
 
 ## Proposed Changes
 
-### Configuration Persistence
+### Parent Directory Scanning
 
 #### [MODIFY] [App.jsx](file:///home/swapnilkolate044/vibe-terminal/src/App.jsx)
-- Load `workspaces` array from config on startup (defaults to an array containing `process.cwd()`).
-- Add `/cd` command handler that:
-  - If no argument → opens the `WorkspaceSelector` UI.
-  - If path argument → switches to it directly and adds it to favorite workspaces list if not already present.
-- Implement `handleAddWorkspace`, `handleDeleteWorkspace`, and `handleSwitchWorkspace` logic to update config and state.
+- In the `showWorkspaceSelector` state trigger, scan the parent directory of `currentCwd`.
+- Filter out files and hidden directories (starting with `.`).
+- Pass the resulting array as `availableWorkspaces` to the `<WorkspaceSelector>` component.
 
 ---
 
-### UI Components
+### Tabbed UI Component
 
-#### [NEW] [WorkspaceSelector.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/WorkspaceSelector.jsx)
-- Create a round-bordered card in Ink.
-- Support key navigation (`upArrow`, `downArrow`, `escape`, `return`).
-- Add state `isAdding` (boolean) and `newPathInput` (string) to capture text when adding a new workspace directory.
-- Render helper keys in footer: `[c] add  [d] delete  [enter] switch  [esc] back`
-
----
-
-### Command Dropdown
-
-#### [MODIFY] [CommandDropdown.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/CommandDropdown.jsx)
-- Update `/cd` description to: `"Change or switch workspaces interactively"`.
+#### [MODIFY] [WorkspaceSelector.jsx](file:///home/swapnilkolate044/vibe-terminal/src/components/WorkspaceSelector.jsx)
+- Introduce `activeTab` state (`'favorites'` or `'available'`).
+- Support `leftArrow` and `rightArrow` to switch between tabs.
+- Display neighboring workspace directories in the "Available" tab.
+- Support pressing `f` (or `F`) to trigger a callback `onAddFavorite(path)` to easily save neighboring workspaces.
 
 ## Verification Plan
 
 ### Manual Verification
-- Run the app, type `/cd` and press Enter → verify the Workspace Selector card opens.
-- Verify arrow keys highlight different workspaces.
-- Press `c`, type a path, press Enter → verify it adds to the list and persists.
-- Press `d` → verify the workspace is removed.
-- Press `Enter` on a workspace → verify the workspace switches and the card closes.
-- Verify `Esc` closes the selector card.
+- Type `/cd` and press Enter → verify the modal shows `[favorites]` and `[available]` tabs.
+- Press `rightArrow` → verify it switches to the `[available]` tab and lists other projects (e.g. `openclaude`, `rog-rn`, etc.).
+- Highlight an item in `[available]` and press `f` → verify it adds it to favorites.
+- Highlight an item in `[available]` and press `Enter` → verify the app switches to that workspace and closes.

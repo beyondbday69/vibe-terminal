@@ -156,6 +156,7 @@ const App = () => {
   const [helpersEnabled, setHelpersEnabled] = useState(false);
   const [workspaces, setWorkspaces] = useState([]);
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -370,6 +371,22 @@ const App = () => {
       setWorkspaces(loadedWorkspaces);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!showWorkspaceSelector) return;
+    (async () => {
+      try {
+        const parentDir = path.dirname(currentCwd);
+        const entries = await fs.readdir(parentDir, { withFileTypes: true });
+        const dirs = entries
+          .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+          .map(e => path.join(parentDir, e.name));
+        setAvailableWorkspaces(dirs);
+      } catch (err) {
+        setAvailableWorkspaces([]);
+      }
+    })();
+  }, [showWorkspaceSelector, currentCwd]);
 
   useEffect(() => {
     setModel(activeModel);
@@ -1537,6 +1554,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     return (
       <WorkspaceSelector
         workspaces={workspaces}
+        availableWorkspaces={availableWorkspaces}
         activeWorkspace={currentCwd}
         onSelect={async (wpPath) => {
           try {
@@ -1566,6 +1584,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           const nextWps = workspaces.filter(w => w !== wpPath);
           setWorkspaces(nextWps);
           await saveConfig({ workspaces: nextWps });
+        }}
+        onAddFavorite={async (wpPath) => {
+          if (!workspaces.includes(wpPath)) {
+            const nextWps = [...workspaces, wpPath];
+            setWorkspaces(nextWps);
+            await saveConfig({ workspaces: nextWps });
+          }
         }}
         onClose={() => setShowWorkspaceSelector(false)}
         termWidth={termWidth}

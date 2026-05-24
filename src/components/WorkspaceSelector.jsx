@@ -5,14 +5,17 @@ import chalk from 'chalk';
 
 export const WorkspaceSelector = ({
   workspaces,
+  availableWorkspaces = [],
   activeWorkspace,
   onSelect,
   onCreate,
   onDelete,
+  onAddFavorite,
   onClose,
   termWidth,
   termHeight
 }) => {
+  const [activeTab, setActiveTab] = useState('favorites'); // 'favorites' or 'available'
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
   const [newPathInput, setNewPathInput] = useState('');
@@ -26,6 +29,8 @@ export const WorkspaceSelector = ({
     }
     return p;
   };
+
+  const activeList = activeTab === 'favorites' ? workspaces : availableWorkspaces;
 
   useInput((input, key) => {
     if (isAdding) {
@@ -68,33 +73,57 @@ export const WorkspaceSelector = ({
     if (key.escape) {
       return onClose();
     }
+    if (key.leftArrow) {
+      setActiveTab('favorites');
+      setSelectedIndex(0);
+      return;
+    }
+    if (key.rightArrow) {
+      setActiveTab('available');
+      setSelectedIndex(0);
+      return;
+    }
     if (key.upArrow) {
       setSelectedIndex(prev => Math.max(0, prev - 1));
       return;
     }
     if (key.downArrow) {
-      setSelectedIndex(prev => Math.min(workspaces.length - 1, prev + 1));
+      setSelectedIndex(prev => Math.min(activeList.length - 1, prev + 1));
       return;
     }
     if (key.return) {
-      if (workspaces.length > 0) {
-        onSelect(workspaces[selectedIndex]);
+      if (activeList.length > 0) {
+        onSelect(activeList[selectedIndex]);
       }
       return;
     }
-    if (input === 'c' || input === 'C') {
-      setIsAdding(true);
-      setNewPathInput('');
-      setErrorMessage('');
-      return;
-    }
-    if (input === 'd' || input === 'D' || key.delete) {
-      if (workspaces.length > 0) {
-        const toDelete = workspaces[selectedIndex];
-        onDelete(toDelete);
-        setSelectedIndex(prev => Math.max(0, Math.min(prev, workspaces.length - 2)));
+    
+    // Shortcuts for Favorites tab
+    if (activeTab === 'favorites') {
+      if (input === 'c' || input === 'C') {
+        setIsAdding(true);
+        setNewPathInput('');
+        setErrorMessage('');
+        return;
       }
-      return;
+      if (input === 'd' || input === 'D' || key.delete) {
+        if (workspaces.length > 0) {
+          const toDelete = workspaces[selectedIndex];
+          onDelete(toDelete);
+          setSelectedIndex(prev => Math.max(0, Math.min(prev, workspaces.length - 2)));
+        }
+        return;
+      }
+    }
+
+    // Shortcuts for Available tab
+    if (activeTab === 'available') {
+      if (input === 'f' || input === 'F') {
+        if (availableWorkspaces.length > 0) {
+          onAddFavorite(availableWorkspaces[selectedIndex]);
+        }
+        return;
+      }
     }
   });
 
@@ -116,8 +145,28 @@ export const WorkspaceSelector = ({
         paddingY={1}
       >
         {/* Title */}
-        <Box justifyContent="center" marginBottom={1}>
+        <Box justifyContent="center" marginBottom={0}>
           <Text color="#D77757" bold>switch workspace</Text>
+        </Box>
+
+        {/* Tabs */}
+        <Box justifyContent="center" marginY={1}>
+          <Box marginRight={2}>
+            <Text
+              color={activeTab === 'favorites' ? '#D77757' : '#555555'}
+              bold={activeTab === 'favorites'}
+            >
+              {activeTab === 'favorites' ? '[favorites]' : ' favorites '}
+            </Text>
+          </Box>
+          <Box>
+            <Text
+              color={activeTab === 'available' ? '#D77757' : '#555555'}
+              bold={activeTab === 'available'}
+            >
+              {activeTab === 'available' ? '[available]' : ' available '}
+            </Text>
+          </Box>
         </Box>
 
         <Box justifyContent="center">
@@ -126,21 +175,38 @@ export const WorkspaceSelector = ({
 
         {/* Workspaces list */}
         <Box flexDirection="column" marginY={1}>
-          {workspaces.length === 0 ? (
-            <Text color="#555555" italic>No saved workspaces. Press [c] to add one.</Text>
+          {activeList.length === 0 ? (
+            <Text color="#555555" italic>
+              {activeTab === 'favorites' 
+                ? 'No saved workspaces. Press [c] to add one.'
+                : 'No neighbor workspaces discovered.'}
+            </Text>
           ) : (
-            workspaces.map((p, i) => {
+            activeList.map((p, i) => {
               const active = i === selectedIndex;
               const isActiveWorkspace = p === activeWorkspace;
-              const color = active ? '#D77757' : isActiveWorkspace ? '#98c99a' : '#888888';
+              
+              // Favorite highlight vs Discovered sibling colors
+              const color = active 
+                ? '#D77757' 
+                : isActiveWorkspace 
+                  ? '#98c99a' 
+                  : activeTab === 'favorites' 
+                    ? '#888888' 
+                    : '#666666';
+
               const prefix = active ? '▸ ' : '  ';
               const suffix = isActiveWorkspace ? ' (active)' : '';
 
+              // Check if already in favorites for the available tab
+              const isAlreadyFavorite = activeTab === 'available' && workspaces.includes(p);
+              const favStatus = isAlreadyFavorite ? ' ★' : '';
+
               return (
                 <Box key={p} marginBottom={0}>
-                  <Box width={panelWidth - 20}>
+                  <Box width={panelWidth - 22}>
                     <Text color={color} bold={active}>
-                      {prefix}{formatPath(p)}
+                      {prefix}{formatPath(p)}{favStatus}
                     </Text>
                   </Box>
                   <Text color={isActiveWorkspace ? '#98c99a' : '#444444'}>
@@ -176,10 +242,21 @@ export const WorkspaceSelector = ({
         </Box>
 
         {/* Footer shortcuts */}
-        <Box justifyContent="center" marginTop={1}>
-          <Text color="#555555">
-            <Text color="#D77757" bold>[c]</Text> add  <Text color="#D77757" bold>[d]</Text> delete  <Text color="#D77757" bold>[enter]</Text> switch  <Text color="#D77757" bold>[esc]</Text> back
-          </Text>
+        <Box justifyContent="center" marginTop={1} flexDirection="column" alignItems="center">
+          <Box>
+            {activeTab === 'favorites' ? (
+              <Text color="#555555">
+                <Text color="#D77757" bold>[c]</Text> add  <Text color="#D77757" bold>[d]</Text> delete  <Text color="#D77757" bold>[enter]</Text> switch  <Text color="#D77757" bold>[esc]</Text> back
+              </Text>
+            ) : (
+              <Text color="#555555">
+                <Text color="#D77757" bold>[f]</Text> fav  <Text color="#D77757" bold>[enter]</Text> switch  <Text color="#D77757" bold>[esc]</Text> back
+              </Text>
+            )}
+          </Box>
+          <Box marginTop={0}>
+            <Text color="#444444">◄ / ► switch tabs</Text>
+          </Box>
         </Box>
       </Box>
     </Box>

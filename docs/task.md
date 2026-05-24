@@ -1,6 +1,5 @@
-# Tasks: Workspace Selector UI for `/cd`
+# Tasks: Available Workspaces Auto-Discovery in `/cd`
 
-- [x] Implement `WorkspaceSelector.jsx` UI component in `src/components/WorkspaceSelector.jsx`
-- [x] Add `workspaces` storage, toggle, and command handling in `src/App.jsx`
-- [x] Update `/cd` command autocomplete description in `src/components/CommandDropdown.jsx`
-- [x] Verify functionality (list, switch, create, delete, esc works perfectly)
+- [x] Add parent directory scanning for sibling workspaces in `src/App.jsx`
+- [x] Upgrade `src/components/WorkspaceSelector.jsx` with tabs, sibling discovery display, and favorites shortcut
+- [x] Verify functionality (arrow switching, auto-discovery listing, fav shortcut, switches flawlessly)
