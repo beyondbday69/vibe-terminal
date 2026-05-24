@@ -8,11 +8,10 @@ export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, t
     const idx = tabs.indexOf(activeTeam);
     return idx >= 0 ? idx : 0;
   });
-  
+
   const [roleIndex, setRoleIndex] = useState(0);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [modelIndex, setModelIndex] = useState(0);
-
   const [roleModels, setRoleModels] = useState({});
 
   const activeTabName = tabs[tabIndex];
@@ -24,22 +23,13 @@ export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, t
 
   useInput((input, key) => {
     if (key.escape) {
-      if (isDropdownOpen) {
-        setIsDropdownOpen(false);
-        return;
-      }
+      if (isDropdownOpen) { setIsDropdownOpen(false); return; }
       return onClose();
     }
 
     if (isDropdownOpen) {
-      if (key.upArrow) {
-        setModelIndex(prev => Math.max(0, prev - 1));
-        return;
-      }
-      if (key.downArrow) {
-        setModelIndex(prev => Math.min(models.length - 1, prev + 1));
-        return;
-      }
+      if (key.upArrow) { setModelIndex(prev => Math.max(0, prev - 1)); return; }
+      if (key.downArrow) { setModelIndex(prev => Math.min(models.length - 1, prev + 1)); return; }
       if (key.return) {
         const roleName = activeRoles[roleIndex].role;
         setRoleModels(prev => ({ ...prev, [roleName]: models[modelIndex] }));
@@ -49,25 +39,10 @@ export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, t
       return;
     }
 
-    if (key.leftArrow) {
-      setTabIndex(prev => Math.max(0, prev - 1));
-      setRoleIndex(0);
-      return;
-    }
-    if (key.rightArrow) {
-      setTabIndex(prev => Math.min(tabs.length - 1, prev + 1));
-      setRoleIndex(0);
-      return;
-    }
-
-    if (key.upArrow) {
-      setRoleIndex(prev => Math.max(0, prev - 1));
-      return;
-    }
-    if (key.downArrow) {
-      setRoleIndex(prev => Math.min(activeRoles.length - 1, prev + 1));
-      return;
-    }
+    if (key.leftArrow) { setTabIndex(prev => Math.max(0, prev - 1)); setRoleIndex(0); return; }
+    if (key.rightArrow) { setTabIndex(prev => Math.min(tabs.length - 1, prev + 1)); setRoleIndex(0); return; }
+    if (key.upArrow) { setRoleIndex(prev => Math.max(0, prev - 1)); return; }
+    if (key.downArrow) { setRoleIndex(prev => Math.min(activeRoles.length - 1, prev + 1)); return; }
 
     if (key.return) {
       setIsDropdownOpen(true);
@@ -83,68 +58,87 @@ export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, t
     }
   });
 
-  const overlayWidth = Math.min(80, termWidth - 4);
+  const panelWidth = Math.min(50, termWidth - 6);
 
   return (
-    <Box flexDirection="column" width={termWidth} height={termHeight} padding={1}>
-      <Box marginBottom={1} flexDirection="column">
-        <Text color="#D77757">/team</Text>
-        <Text color="#f0f0f0">select a team</Text>
-        <Text color="#888888">each role runs as a specialist sub-agent with its own model</Text>
-      </Box>
+    <Box
+      width={termWidth}
+      height={termHeight}
+      alignItems="center"
+      justifyContent="center"
+    >
+      <Box
+        flexDirection="column"
+        width={panelWidth}
+        borderStyle="round"
+        borderColor="#3a3a3a"
+        paddingX={2}
+        paddingY={1}
+      >
+        {/* Title */}
+        <Box justifyContent="center" marginBottom={1}>
+          <Text color="#D77757" bold>select team</Text>
+        </Box>
 
-      <Box marginBottom={1}>
-        {tabs.map((tab, i) => (
-          <Box key={tab} marginRight={2}>
-            <Text color={i === tabIndex ? '#f0f0f0' : '#888888'} bold={i === tabIndex}>
-              {tab}
-            </Text>
-          </Box>
-        ))}
-      </Box>
-
-      <Text color="#2a2a2a">{"─".repeat(overlayWidth)}</Text>
-
-      <Box flexDirection="column" marginY={1}>
-        {activeRoles.map((r, i) => {
-          const isSelectedRole = i === roleIndex;
-          const roleColor = ROLE_COLORS[r.role] || '#888888';
-          const icon = ROLE_ICONS[r.role] || '•';
-          const currentModel = roleModels[r.role] || r.model;
-
-          return (
-            <Box key={r.role} flexDirection="row" alignItems="center" marginBottom={1}>
-              <Box width={1} marginRight={2}>
-                <Text color={roleColor}>┃</Text>
-              </Box>
-              <Box width={20}>
-                <Text color={roleColor}>{icon}  {r.role}</Text>
-              </Box>
-              <Box width={30}>
-                <Text color="#888888">{r.desc}</Text>
-              </Box>
-              <Box>
-                <Text color={isSelectedRole ? '#D77757' : '#f0f0f0'}>[{currentModel} ▾]</Text>
-              </Box>
+        {/* Tabs */}
+        <Box justifyContent="center" marginBottom={1}>
+          {tabs.map((tab, i) => (
+            <Box key={tab} marginRight={i < tabs.length - 1 ? 2 : 0}>
+              <Text
+                color={i === tabIndex ? '#D77757' : '#555555'}
+                bold={i === tabIndex}
+              >
+                {i === tabIndex ? `[${tab}]` : ` ${tab} `}
+              </Text>
             </Box>
-          );
-        })}
-      </Box>
-
-      {isDropdownOpen && (
-        <Box flexDirection="column" borderStyle="single" borderColor="#525252" paddingX={1} width={30} marginLeft={50}>
-          {models.map((m, i) => (
-            <Text key={m} color={i === modelIndex ? '#D77757' : '#888888'} bold={i === modelIndex}>
-              {i === modelIndex ? '> ' : '  '}{m}
-            </Text>
           ))}
         </Box>
-      )}
 
-      <Box marginTop={1}>
-        <Text color="#888888">
-          <Text color="#D77757" bold>[S] start team</Text>   {activeRoles.length} agents · {modeText}
-        </Text>
+        <Box justifyContent="center">
+          <Text color="#2a2a2a">{"─".repeat(panelWidth - 6)}</Text>
+        </Box>
+
+        {/* Roles */}
+        <Box flexDirection="column" marginY={1}>
+          {activeRoles.map((r, i) => {
+            const active = i === roleIndex;
+            const color = ROLE_COLORS[r.role] || '#888888';
+            const icon = ROLE_ICONS[r.role] || '•';
+            const model = roleModels[r.role] || r.model;
+
+            return (
+              <Box key={r.role} marginBottom={0}>
+                <Text color={active ? color : '#555555'}>
+                  {active ? '▸ ' : '  '}{icon} {r.role}
+                </Text>
+                <Text color="#3a3a3a">  </Text>
+                <Text color={active ? '#888888' : '#3a3a3a'}>{model}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* Model dropdown */}
+        {isDropdownOpen && (
+          <Box flexDirection="column" borderStyle="single" borderColor="#3a3a3a" paddingX={1} marginBottom={1}>
+            {models.map((m, i) => (
+              <Text key={m} color={i === modelIndex ? '#D77757' : '#555555'} bold={i === modelIndex}>
+                {i === modelIndex ? '▸ ' : '  '}{m}
+              </Text>
+            ))}
+          </Box>
+        )}
+
+        <Box justifyContent="center">
+          <Text color="#2a2a2a">{"─".repeat(panelWidth - 6)}</Text>
+        </Box>
+
+        {/* Footer */}
+        <Box justifyContent="center" marginTop={1}>
+          <Text color="#555555">
+            <Text color="#D77757" bold>[s]</Text> start  <Text color="#555555" bold>[esc]</Text> back
+          </Text>
+        </Box>
       </Box>
     </Box>
   );
