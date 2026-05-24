@@ -7,7 +7,7 @@ import {
   handleTaskUpdate, handleTaskOutput, handleTaskStop,
 } from './handlers/tasks.js';
 import { handleCronCreate, handleCronDelete, handleCronList } from './handlers/cron.js';
-import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop, handleTeamSpawn, handleAgentReport, handleAgentReportAll } from './handlers/agents.js';
+import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop, handleTeamSpawn, handleAgentReport, handleAgentReportAll, handleTeamMessage } from './handlers/agents.js';
 import { handleConceptual } from './handlers/conceptual.js';
 
 const HANDLERS = {
@@ -35,6 +35,7 @@ const HANDLERS = {
   team_spawn: handleTeamSpawn,
   agent_report: handleAgentReport,
   agent_report_all: handleAgentReportAll,
+  team_message: handleTeamMessage,
 
   ask_user_question: handleConceptual,
   enter_plan_mode: handleConceptual,
@@ -46,13 +47,13 @@ const HANDLERS = {
   invoke_skill: handleConceptual,
 };
 
-export const executeToolCall = async (toolName, toolArgs) => {
+export const executeToolCall = async (toolName, toolArgs, context = {}) => {
   const handler = HANDLERS[toolName];
   if (!handler) {
     return { type: 'error', message: `Unknown tool "${toolName}".` };
   }
   try {
-    const result = await handler(toolArgs || {}, toolName);
+    const result = await handler(toolArgs || {}, toolName, context);
     // Pass through structured objects, wrap plain strings
     if (typeof result === 'object' && result !== null && result.type) {
       return result;
@@ -62,3 +63,4 @@ export const executeToolCall = async (toolName, toolArgs) => {
     return { type: 'error', message: `Error executing ${toolName}: ${err.message}` };
   }
 };
+

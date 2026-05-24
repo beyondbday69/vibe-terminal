@@ -1,213 +1,151 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { LOGO_ROWS, TEAM_PRESETS, ROLE_COLORS } from '../constants.js';
+import { TEAM_PRESETS, ROLE_COLORS, ROLE_ICONS } from '../constants.js';
 
-// Two modes: 'team' picks a team preset, 'role' edits model per role
-export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, termWidth, termHeight }) => {
-  const teams = ['solo', ...Object.keys(TEAM_PRESETS)];
-  const [mode, setMode] = useState('team'); // 'team' or 'role'
-  const [teamIndex, setTeamIndex] = useState(() => {
-    const idx = teams.indexOf(activeTeam);
+export const TeamSelector = ({ activeTeam, availableModels, onSelect, onClose, termWidth, termHeight, modeText = 'ask mode' }) => {
+  const tabs = Object.keys(TEAM_PRESETS);
+  const [tabIndex, setTabIndex] = useState(() => {
+    const idx = tabs.indexOf(activeTeam);
     return idx >= 0 ? idx : 0;
   });
+  
   const [roleIndex, setRoleIndex] = useState(0);
-  const [roleModels, setRoleModels] = useState({}); // { role: model }
-  const [modelSearching, setModelSearching] = useState(false);
-  const [modelSearch, setModelSearch] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [modelIndex, setModelIndex] = useState(0);
 
-  const selectedTeamName = teams[teamIndex];
-  const selectedTeamPreset = TEAM_PRESETS[selectedTeamName] || [];
+  const [roleModels, setRoleModels] = useState({});
+
+  const activeTabName = tabs[tabIndex];
+  const activeRoles = TEAM_PRESETS[activeTabName] || [];
 
   const models = availableModels && availableModels.length > 0
     ? availableModels
     : ['kimi-k2.6', 'gpt-5.5', 'gpt-4o', 'claude-3-5-sonnet', 'gemini-2.0-flash'];
 
-  const filteredModels = modelSearch
-    ? models.filter(m => m.toLowerCase().includes(modelSearch.toLowerCase()))
-    : models;
-
   useInput((input, key) => {
     if (key.escape) {
-      if (modelSearching) {
-        setModelSearching(false);
-        setModelSearch('');
-        return;
-      }
-      if (mode === 'role') {
-        setMode('team');
+      if (isDropdownOpen) {
+        setIsDropdownOpen(false);
         return;
       }
       return onClose();
     }
 
-    if (modelSearching) {
-      if (key.backspace || key.delete) {
-        setModelSearch(prev => prev.slice(0, -1));
-        setModelIndex(0);
-        return;
-      }
+    if (isDropdownOpen) {
       if (key.upArrow) {
         setModelIndex(prev => Math.max(0, prev - 1));
         return;
       }
       if (key.downArrow) {
-        setModelIndex(prev => Math.min(filteredModels.length - 1, prev + 1));
+        setModelIndex(prev => Math.min(models.length - 1, prev + 1));
         return;
       }
       if (key.return) {
-        if (filteredModels.length > 0) {
-          const role = selectedTeamPreset[roleIndex].role;
-          setRoleModels(prev => ({ ...prev, [role]: filteredModels[modelIndex] }));
-        }
-        setModelSearching(false);
-        setModelSearch('');
+        const roleName = activeRoles[roleIndex].role;
+        setRoleModels(prev => ({ ...prev, [roleName]: models[modelIndex] }));
+        setIsDropdownOpen(false);
         return;
-      }
-      if (input && !key.ctrl && !key.meta) {
-        setModelSearch(prev => prev + input);
-        setModelIndex(0);
       }
       return;
     }
 
-    if (mode === 'team') {
-      if (key.upArrow) {
-        setTeamIndex(prev => Math.max(0, prev - 1));
-        return;
-      }
-      if (key.downArrow) {
-        setTeamIndex(prev => Math.min(teams.length - 1, prev + 1));
-        return;
-      }
-      if (key.return) {
-        if (selectedTeamName === 'solo') {
-          onSelect(selectedTeamName, {});
-          return;
-        }
-        // Enter role editing mode
-        setMode('role');
-        setRoleIndex(0);
-        return;
-      }
+    if (key.leftArrow) {
+      setTabIndex(prev => Math.max(0, prev - 1));
+      setRoleIndex(0);
+      return;
+    }
+    if (key.rightArrow) {
+      setTabIndex(prev => Math.min(tabs.length - 1, prev + 1));
+      setRoleIndex(0);
+      return;
     }
 
-    if (mode === 'role') {
-      if (key.upArrow) {
-        setRoleIndex(prev => Math.max(0, prev - 1));
-        return;
-      }
-      if (key.downArrow) {
-        setRoleIndex(prev => Math.min(selectedTeamPreset.length - 1, prev + 1));
-        return;
-      }
-      if (key.return) {
-        // Open model search for this role
-        setModelSearching(true);
-        setModelSearch('');
-        setModelIndex(0);
-        return;
-      }
-      if (input === 'c' || input === 'C') {
-        // Confirm team with current model selections
-        onSelect(selectedTeamName, roleModels);
-        return;
-      }
+    if (key.upArrow) {
+      setRoleIndex(prev => Math.max(0, prev - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setRoleIndex(prev => Math.min(activeRoles.length - 1, prev + 1));
+      return;
+    }
+
+    if (key.return) {
+      setIsDropdownOpen(true);
+      const currentRole = activeRoles[roleIndex].role;
+      const currentModel = roleModels[currentRole] || activeRoles[roleIndex].model;
+      const mIdx = models.indexOf(currentModel);
+      setModelIndex(mIdx >= 0 ? mIdx : 0);
+      return;
+    }
+
+    if (input === 's' || input === 'S') {
+      onSelect(activeTabName, roleModels);
     }
   });
 
-  const overlayWidth = Math.min(70, termWidth - 8);
-  const paddingTop = Math.floor((termHeight - 20) / 2);
+  const overlayWidth = Math.min(80, termWidth - 4);
 
   return (
-    <Box flexDirection="column" width={termWidth} height={termHeight} paddingTop={Math.max(1, paddingTop)} alignItems="center">
-      {LOGO_ROWS.map((row, i) => (
-        <Text key={i} color="#D77757">{row}</Text>
-      ))}
-      <Text bold color="white">{' '}</Text>
+    <Box flexDirection="column" width={termWidth} height={termHeight} padding={1}>
+      <Box marginBottom={1} flexDirection="column">
+        <Text color="#D77757">/team</Text>
+        <Text color="#f0f0f0">select a team</Text>
+        <Text color="#888888">each role runs as a specialist sub-agent with its own model</Text>
+      </Box>
 
-      {mode === 'team' && (
-        <Box flexDirection="column" width={overlayWidth} paddingX={2}>
-          <Box marginBottom={1}>
-            <Text color="#888888">select team  </Text>
-            <Text color="#444444">ESC close  ENTER select</Text>
+      <Box marginBottom={1}>
+        {tabs.map((tab, i) => (
+          <Box key={tab} marginRight={2}>
+            <Text color={i === tabIndex ? '#f0f0f0' : '#888888'} bold={i === tabIndex}>
+              {tab}
+            </Text>
           </Box>
-          <Text color="#2a2a2a">{"─".repeat(overlayWidth - 4)}</Text>
-          <Box flexDirection="column" marginTop={1}>
-            {teams.map((team, i) => {
-              const isSelected = i === teamIndex;
-              const isActive = team === activeTeam;
-              return (
-                <Box key={team}>
-                  <Text color={isSelected ? '#f0f0f0' : '#888888'} bold={isSelected}>
-                    {isSelected ? '> ' : '  '}{team.padEnd(15)}
-                  </Text>
-                  {isActive && <Text color="#98c99a"> active</Text>}
-                  {!isActive && selectedTeamPreset && i > 0 && TEAM_PRESETS[team] && (
-                    <Text color="#444444"> {TEAM_PRESETS[team].length} roles</Text>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
+        ))}
+      </Box>
+
+      <Text color="#2a2a2a">{"─".repeat(overlayWidth)}</Text>
+
+      <Box flexDirection="column" marginY={1}>
+        {activeRoles.map((r, i) => {
+          const isSelectedRole = i === roleIndex;
+          const roleColor = ROLE_COLORS[r.role] || '#888888';
+          const icon = ROLE_ICONS[r.role] || '•';
+          const currentModel = roleModels[r.role] || r.model;
+
+          return (
+            <Box key={r.role} flexDirection="row" alignItems="center" marginBottom={1}>
+              <Box width={1} marginRight={2}>
+                <Text color={roleColor}>┃</Text>
+              </Box>
+              <Box width={20}>
+                <Text color={roleColor}>{icon}  {r.role}</Text>
+              </Box>
+              <Box width={30}>
+                <Text color="#888888">{r.desc}</Text>
+              </Box>
+              <Box>
+                <Text color={isSelectedRole ? '#D77757' : '#f0f0f0'}>[{currentModel} ▾]</Text>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+
+      {isDropdownOpen && (
+        <Box flexDirection="column" borderStyle="single" borderColor="#525252" paddingX={1} width={30} marginLeft={50}>
+          {models.map((m, i) => (
+            <Text key={m} color={i === modelIndex ? '#D77757' : '#888888'} bold={i === modelIndex}>
+              {i === modelIndex ? '> ' : '  '}{m}
+            </Text>
+          ))}
         </Box>
       )}
 
-      {mode === 'role' && !modelSearching && (
-        <Box flexDirection="column" width={overlayWidth} paddingX={2}>
-          <Box marginBottom={1}>
-            <Text color="#888888">{selectedTeamName}  </Text>
-            <Text color="#444444">ENTER change model  C confirm  ESC back</Text>
-          </Box>
-          <Text color="#2a2a2a">{"─".repeat(overlayWidth - 4)}</Text>
-          <Box flexDirection="column" marginTop={1}>
-            {selectedTeamPreset.map((r, i) => {
-              const isSelected = i === roleIndex;
-              const roleColor = ROLE_COLORS[r.role] || '#888888';
-              const currentModel = roleModels[r.role] || r.model;
-              return (
-                <Box key={r.role}>
-                  <Text color={isSelected ? '#f0f0f0' : roleColor} bold={isSelected}>
-                    {isSelected ? '> ' : '  '}{r.role.padEnd(15)}
-                  </Text>
-                  <Text color="#d4a574">{currentModel}</Text>
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>
-      )}
-
-      {modelSearching && (
-        <Box flexDirection="column" width={overlayWidth} paddingX={2}>
-          <Box marginBottom={1}>
-            <Text color="#888888">model for {selectedTeamPreset[roleIndex].role}  </Text>
-            <Text color="#444444">ESC cancel  ENTER select</Text>
-          </Box>
-          <Box>
-            <Text color="#888888">search: </Text>
-            <Text color="#d4a574">{modelSearch}</Text>
-            <Text color="#444444">_</Text>
-          </Box>
-          <Text color="#2a2a2a">{"─".repeat(overlayWidth - 4)}</Text>
-          <Box flexDirection="column" marginTop={1}>
-            {filteredModels.length === 0 ? (
-              <Text color="#c97070">no match</Text>
-            ) : (
-              filteredModels.slice(0, 8).map((m, i) => {
-                const isSelected = i === modelIndex;
-                return (
-                  <Box key={m}>
-                    <Text color={isSelected ? '#f0f0f0' : '#888888'} bold={isSelected}>
-                      {isSelected ? '> ' : '  '}{m}
-                    </Text>
-                  </Box>
-                );
-              })
-            )}
-          </Box>
-        </Box>
-      )}
+      <Box marginTop={1}>
+        <Text color="#888888">
+          <Text color="#D77757" bold>[S] start team</Text>   {activeRoles.length} agents · {modeText}
+        </Text>
+      </Box>
     </Box>
   );
 };

@@ -50,7 +50,7 @@ const getRepoName = (url) => {
 };
 import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
 import { listFiles } from './utils/fileList.js';
-import { LOGO_ROWS, COLORS, SYSTEM_PROMPT_TEMPLATE } from './constants.js';
+import { LOGO_ROWS, COLORS, SYSTEM_PROMPT_TEMPLATE, ROLE_COLORS, ROLE_ICONS } from './constants.js';
 import { loadEnv, saveEnv } from './utils/env.js';
 import { createCheckpoint, listCheckpoints, rewindTo, forkCheckpoint, getCheckpoint } from './utils/rewind.js';
 
@@ -67,7 +67,7 @@ import { ToolConfirmation } from './components/ToolConfirmation.jsx';
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
 import { executeToolCall } from './tools/executor.js';
-import { setApiKey, setBaseUrl, setModel, getAgents } from './tools/handlers/agents.js';
+import { setApiKey, setBaseUrl, setModel, getAgents, handleTeamMessage, popUserMessages, popTeamChatLog, handleTeamSpawn } from './tools/handlers/agents.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.vibe-code');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -150,6 +150,43 @@ const App = () => {
   const [activeTeam, setActiveTeam] = useState('solo');
   const [showTeamSelector, setShowTeamSelector] = useState(false);
   const [sessionEdits, setSessionEdits] = useState([]);
+  const [activeAgents, setActiveAgents] = useState([]);
+  const [expandedAgent, setExpandedAgent] = useState(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const agentsMap = getAgents();
+      const list = Array.from(agentsMap.values()).filter(a => a.status !== 'stopped');
+      setActiveAgents(list);
+
+      // Show messages from agents to the user
+      const incoming = popUserMessages();
+      if (incoming.length > 0) {
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          for (const m of incoming) {
+            newMsgs.push({ role: 'assistant', content: `[${m.sender}] ${m.message}` });
+          }
+          return newMsgs;
+        });
+      }
+
+      // Show inter-agent chatter in the chat log
+      const chatLog = popTeamChatLog();
+      if (chatLog.length > 0) {
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          for (const entry of chatLog) {
+            if (entry.to !== 'user') {
+              newMsgs.push({ role: 'system', content: `[${entry.from} -> ${entry.to}] ${entry.message}` });
+            }
+          }
+          return newMsgs;
+        });
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [activeRole, setActiveRole] = useState(null);
   const [tokenUsage, setTokenUsage] = useState({ used: 0, limit: 128000 });
 
@@ -385,6 +422,18 @@ const App = () => {
     // Shortcuts
     if (key.ctrl && inputChar === 'm') { setShowModelSelector(true); return; }
     if (key.ctrl && inputChar === 't') { setShowThinking(prev => !prev); return; }
+
+    // Number keys 1-9 to toggle agent expansion (only when team active and input is empty)
+    if (activeTeam !== 'solo' && activeAgents.length > 0 && !input && !key.ctrl && !key.meta) {
+      const num = parseInt(inputChar, 10);
+      if (num >= 1 && num <= Math.min(activeAgents.length, 9)) {
+        const agentId = activeAgents[num - 1]?.id;
+        if (agentId) {
+          setExpandedAgent(prev => prev === agentId ? null : agentId);
+          return;
+        }
+      }
+    }
     if (key.ctrl && inputChar === 'o') {
       const agents = getAgents();
       const agentMsgs = messages.filter(m => m.role === 'tool_call' && m.name === 'agent_spawn');
@@ -1056,6 +1105,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       return;
     }
 
+    if (activeTeam !== 'solo') {
+      const conversation = [...messages, { role: 'user', content: trimmedQuery }];
+      setMessages(conversation);
+      setInput('');
+      
+      const agentsMap = getAgents();
+      let managerExists = false;
+      for (const a of agentsMap.values()) {
+         if ((a.role === 'manager' || a.role === 'orchestrator') && a.status !== 'stopped') managerExists = true;
+      }
+      
+      if (!managerExists) {
+        await handleTeamSpawn({ task: trimmedQuery, team_id: activeTeam });
+      } else {
+        await handleTeamMessage({ role: 'manager', message: trimmedQuery }, null, { senderRole: 'user' });
+      }
+      return;
+    }
+
     let conversation = [...messages, { role: 'user', content: trimmedQuery }];
     setMessages(conversation);
     setInput('');
@@ -1550,7 +1618,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                     <Box width={30}><Text color="#f0f0f0">{e.path.length > 28 ? '...' + e.path.slice(-25) : e.path}</Text></Box>
                     <Box width={6}><Text color="#6db86d">+{e.linesAdded}</Text></Box>
                     <Box width={6}><Text color="#c97070">-{e.linesRemoved}</Text></Box>
-                    <Text color="#c9a8f5">{e.role}</Text>
+                    <Text color={ROLE_COLORS[e.role] || '#888888'}>{e.role}</Text>
                   </Box>
                 ))}
                 <Text color="#2a2a2a">  {"─".repeat(Math.min(termWidth - 4, 80))}</Text>
@@ -1586,26 +1654,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           selectedIndex={confirmIndex}
         />
       ) : (
-        <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
-          if (!input.includes('@') || fileList.length === 0) return null;
-          const lastAt = input.lastIndexOf('@');
-          const query = input.slice(lastAt + 1).toLowerCase();
-          const filtered = fileList.filter(f => f.toLowerCase().includes(query));
-          return filtered[dropdownIndex] || filtered[0] || null;
-        })()} />
+        <Box flexDirection="column" width="100%">
+          {activeTeam !== 'solo' && activeAgents.length > 0 && (
+            <Box flexDirection="column" marginY={1}>
+              <Text color="#2a2a2a">{"─".repeat(Math.min(termWidth - 4, 60))}  team: {activeTeam}</Text>
+              {activeAgents.map((agent, idx) => {
+                const roleColor = ROLE_COLORS[agent.role || 'manager'] || '#d4a574';
+                const roleIcon = ROLE_ICONS[agent.role || 'manager'] || '•';
+                const statusColor = agent.status === 'running' ? '#d4a574' : agent.status === 'idle' ? '#7eb8f7' : agent.status === 'queued' ? '#444444' : agent.status === 'failed' ? '#c97070' : '#98c99a';
+                const statusIcon = agent.status === 'running' ? '●' : agent.status === 'queued' ? '○' : agent.status === 'idle' ? '◇' : agent.status === 'failed' ? '!' : '✓';
+                const actionText = agent.status === 'running' ? (agent.lastActionDetail || 'working...') : agent.status === 'queued' ? 'waiting for manager' : agent.status === 'idle' ? 'idle' : agent.status;
+                const isExpanded = expandedAgent === agent.id;
+                const expandIcon = isExpanded ? '▾' : '▸';
+                return (
+                  <Box key={agent.id} flexDirection="column">
+                    <Box>
+                      <Box width={3}><Text color="#444444">{idx + 1}</Text></Box>
+                      <Box width={2}><Text color={statusColor}>{statusIcon}</Text></Box>
+                      <Box width={14}><Text color={roleColor}>{roleIcon} {agent.role || 'agent'}</Text></Box>
+                      <Box width={8}><Text color={statusColor}>[{agent.status}]</Text></Box>
+                      <Box width={4}><Text color="#444444">{Math.round((Date.now() - agent.createdAt) / 1000)}s</Text></Box>
+                      <Box><Text color="#888888">  {actionText.slice(0, 40)}</Text></Box>
+                      <Box marginLeft={1}><Text color="#444444">{expandIcon}</Text></Box>
+                    </Box>
+                    {isExpanded && agent.log.length > 0 && (
+                      <Box flexDirection="column" paddingLeft={5} marginBottom={1}>
+                        {agent.log.slice(-5).map((entry, li) => (
+                          <Text key={li} color="#525252">{entry}</Text>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+              <Text color="#2a2a2a">{"─".repeat(Math.min(termWidth - 4, 60))}  press 1-{Math.min(activeAgents.length, 9)} to expand</Text>
+            </Box>
+          )}
+          <AnimatedInputBox isLoading={isLoading} input={input} setInput={setInput} handleSubmit={handleSubmit} actualScroll={actualScroll} selectedFile={(() => {
+            if (!input.includes('@') || fileList.length === 0) return null;
+            const lastAt = input.lastIndexOf('@');
+            const query = input.slice(lastAt + 1).toLowerCase();
+            const filtered = fileList.filter(f => f.toLowerCase().includes(query));
+            return filtered[dropdownIndex] || filtered[0] || null;
+          })()} />
+        </Box>
       )}
 
       <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text>
       <Box justifyContent="space-between">
         <Text color="#888888">{displayDir}</Text>
         <Box>
-          <Text color="#444444">ctx </Text>
+          <Text color="#444444">Mode: {askBeforeEdits ? 'ask' : 'auto'}</Text>
+          {activeTeam !== 'solo' ? (
+            <>
+              <Text color="#444444">  ·  </Text>
+              <Text color="#D77757">team: {activeTeam}</Text>
+            </>
+          ) : null}
+          {activeAgents.filter(a => a.status === 'running').length > 0 ? (
+            <>
+              <Text color="#444444">  ·  </Text>
+              <Text color="#d4a574">{activeAgents.filter(a => a.status === 'running').length} running</Text>
+            </>
+          ) : (
+            <>
+              <Text color="#444444">  ·  </Text>
+              <Text color="#888888">{activeModel}</Text>
+            </>
+          )}
+          <Text color="#444444">  ·  ctx </Text>
           <Text color={tokenUsage.used > tokenUsage.limit * 0.8 ? '#c97070' : tokenUsage.used > tokenUsage.limit * 0.5 ? '#d4a574' : '#98c99a'}>{(tokenUsage.used / 1000).toFixed(1)}k</Text>
           <Text color="#444444">/{(tokenUsage.limit / 1000).toFixed(0)}k</Text>
-          <Text color="#444444">  |  tools {toolsDefinition.length}</Text>
-          <Text color="#444444">  |  edits {sessionEdits.length}</Text>
-          <Text color="#444444">  |  </Text>
-          <Text color={askBeforeEdits ? '#d4a574' : '#98c99a'}>{askBeforeEdits ? 'ask' : 'auto'}</Text>
         </Box>
       </Box>
     </Box>

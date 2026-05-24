@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import path from 'node:path';
-import { SYNTAX_COLORS } from '../constants.js';
+import { SYNTAX_COLORS, ROLE_COLORS } from '../constants.js';
 
 // ── Diff Viewer Constants (matches design spec) ────────────────────────────────
 const C_DIM = '#888888';
@@ -232,7 +232,7 @@ export function formatDiffView(filePath, newContent, oldContent, termWidth, role
   const lines = [];
 
   // Header
-  const roleText = role ? chalk.dim(` [${role}]`) : '';
+  const roleText = role ? chalk.hex(ROLE_COLORS[role] || C_DIM)(` [${role}]`) : '';
   lines.push({ type: 'tool_content', content: `  ${chalk.hex(C_ACCENT)('│')} ${action} ${chalk.hex(C_WHITE)(relPath)}${roleText}` });
   lines.push({ type: 'tool_content', content: '' });
 
