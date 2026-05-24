@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibe Terminal — Web Mirror</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <link rel="stylesheet" href="index.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;800&family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="web-cli-container">
+    <!-- Header -->
+    <header class="web-cli-header">
+      <div class="header-left">
+        <div class="logo-badge">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>VIBE TERMINAL</h1>
+          <span class="sub-label">Remote CLI Wrapper</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-badge disconnected" id="connection-status">
+          <span class="status-dot"></span>
+          <span class="status-text">DISCONNECTED</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Terminal Container -->
+    <main class="terminal-viewport-wrapper">
+      <div class="terminal-glowing-border">
+        <div id="terminal-container"></div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="web-cli-footer">
+      <div class="footer-shortcuts">
+        <span class="shortcut">💡 Web PTY Sync</span>
+        <span class="shortcut"><kbd>Enter</kbd> submit</span>
+        <span class="shortcut"><kbd>Ctrl+A</kbd> agents</span>
+        <span class="shortcut"><kbd>Ctrl+M</kbd> models</span>
+      </div>
+      <div class="footer-credit">
+        Google DeepMind pair programming
+      </div>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    const termContainer = document.getElementById('terminal-container');
+    const statusBadge = document.getElementById('connection-status');
+    const statusText = statusBadge.querySelector('.status-text');
+
+    // Create Term instance
+    const term = new Terminal({
+      fontFamily: '"Fira Code", Courier, monospace',
+      fontSize: 14,
+      lineHeight: 1.25,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      theme: {
+        background: '#1a1a1a',
+        foreground: '#e2e8f0',
+        cursor: '#D77757',
+        black: '#000000',
+        red: '#EF4444',
+        green: '#3ECF8E',
+        yellow: '#FBBF24',
+        blue: '#3B82F6',
+        magenta: '#EC4899',
+        cyan: '#06B6D4',
+        white: '#ffffff',
+        brightBlack: '#475569',
+        brightRed: '#F87171',
+        brightGreen: '#34D399',
+        brightYellow: '#FBBF24',
+        brightBlue: '#60A5FA',
+        brightMagenta: '#F472B6',
+        brightCyan: '#22D3EE',
+        brightWhite: '#ffffff'
+      }
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(termContainer);
+    fitAddon.fit();
+
+    // Setup WebSockets
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/pty`;
+    let socket;
+
+    function connect() {
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        statusBadge.className = 'status-badge connected';
+        statusText.textContent = 'CONNECTED';
+        term.write('\r\n\x1b[32m✔ Connected to remote secure PTY session\x1b[0m\r\n');
+        
+        // Send initial resize
+        const dims = fitAddon.proposeDimensions();
+        if (dims) {
+          socket.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'output') {
+            term.write(msg.data);
+          }
+        } catch (e) {
+          term.write(event.data);
+        }
+      };
+
+      socket.onclose = () => {
+        statusBadge.className = 'status-badge disconnected';
+        statusText.textContent = 'DISCONNECTED';
+        term.write('\r\n\x1b[31m✖ Remote connection lost. Reconnecting in 3s...\x1b[0m\r\n');
+        setTimeout(connect, 3000);
+      };
+
+      socket.onerror = (err) => {
+        console.error('Socket error:', err);
+      };
+    }
+
+    // Capture input
+    term.onData((data) => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'input', data }));
+      }
+    });
+
+    // Resize handling
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+      const dims = fitAddon.proposeDimensions();
+      if (dims && socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+      }
+    });
+
+    // Initial connection delay
+    setTimeout(connect, 500);
+  </script>
+</body>
+</html>
