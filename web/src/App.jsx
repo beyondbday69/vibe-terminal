@@ -1702,6 +1702,49 @@ export default function App() {
 
   const [currentCwd, setCurrentCwd] = useState('');
   const [homeDir, setHomeDir] = useState('');
+  const [helpersEnabled, setHelpersEnabled] = useState(false);
+  const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
+  const [pastedMultilineText, setPastedMultilineText] = useState(null);
+
+  const spawnHelper = useCallback(async (role, goal) => {
+    try {
+      const res = await fetch('/api/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'agent_spawn', args: { goal, type: role } })
+      });
+      const data = await res.json();
+      if (data.type === 'agent_spawned') {
+        const agentId = data.id;
+        // Start polling for this agent's completion
+        const poll = setInterval(async () => {
+          try {
+            const r = await fetch('/api/agents');
+            const list = await r.json();
+            const found = list.find(a => a.id === agentId);
+            if (found && found.status !== 'running') {
+              clearInterval(poll);
+              if (found.status === 'completed' && found.result) {
+                setMessages(prev => [
+                  ...prev,
+                  {
+                    role: 'system',
+                    isHelperResult: true,
+                    helperRole: role,
+                    content: `[${role}] ${found.result}`
+                  }
+                ]);
+              }
+            }
+          } catch {
+            clearInterval(poll);
+          }
+        }, 1000);
+      }
+    } catch (e) {
+      console.error('Failed to spawn helper agent:', e);
+    }
+  }, []);
 
   const confirmTool = useCallback(() => {
     if (confirmationResolverRef.current) {
@@ -2153,7 +2196,7 @@ export default function App() {
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e) => {
-    if (showModelSelector || showProviderSelector || showResume || showAgents || showFilePicker) return;
+    if (showModelSelector || showProviderSelector || showResume || showAgents || showFilePicker || showWorkspaceSelector) return;
 
     if (e.key === 'Escape') {
       if (isLoading) { abortRef.current?.abort(); return; }
@@ -2175,7 +2218,7 @@ export default function App() {
       e.preventDefault();
       handleSubmit();
     }
-  }, [isLoading, showModelSelector, showProviderSelector, showResume, showAgents, showFilePicker, handleSubmit, onRefreshAgents, loadCodebaseFiles]);
+  }, [isLoading, showModelSelector, showProviderSelector, showResume, showAgents, showFilePicker, showWorkspaceSelector, handleSubmit, onRefreshAgents, loadCodebaseFiles]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -2428,6 +2471,23 @@ export default function App() {
           onToggle={toggleFile}
           onAttach={onAttachFiles}
           onClose={() => { setShowFilePicker(false); inputRef.current?.focus(); }}
+        />
+      )}
+
+      {/* Workspace Selector */}
+      {showWorkspaceSelector && (
+        <WorkspaceSelectorOverlay
+          currentCwd={currentCwd}
+          homeDir={homeDir}
+          onClose={(newCwd) => {
+            setShowWorkspaceSelector(false);
+            if (newCwd) {
+              setCurrentCwd(newCwd);
+              loadCodebaseFiles().catch(() => {});
+              setMessages(prev => [...prev, { role: 'system', content: `[System] Switched active workspace to: ${newCwd}` }]);
+            }
+            inputRef.current?.focus();
+          }}
         />
       )}
     </div>
