@@ -14,6 +14,7 @@ const COMMANDS = [
   { cmd: '/apikey', desc: 'Set API key' },
   { cmd: '/provider', desc: 'Switch provider' },
   { cmd: '/auto', desc: 'Toggle auto-execute vs ask mode' },
+  { cmd: '/helpers', desc: 'Toggle helper agents (auto-review, auto-verify)' },
   { cmd: '/rewind', desc: 'Rewind to checkpoint' },
   { cmd: '/branch', desc: 'Fork from checkpoint' },
   { cmd: '/clear', desc: 'Clear chat' },

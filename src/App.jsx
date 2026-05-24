@@ -67,7 +67,7 @@ import { ToolConfirmation } from './components/ToolConfirmation.jsx';
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
 import { executeToolCall } from './tools/executor.js';
-import { setApiKey, setBaseUrl, setModel, getAgents, handleTeamMessage, popUserMessages, popTeamChatLog, handleTeamSpawn } from './tools/handlers/agents.js';
+import { setApiKey, setBaseUrl, setModel, getAgents, handleTeamMessage, popUserMessages, popTeamChatLog, handleTeamSpawn, spawnHelperAgent } from './tools/handlers/agents.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.vibe-code');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -152,6 +152,7 @@ const App = () => {
   const [sessionEdits, setSessionEdits] = useState([]);
   const [activeAgents, setActiveAgents] = useState([]);
   const [expandedAgent, setExpandedAgent] = useState(null);
+  const [helpersEnabled, setHelpersEnabled] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -165,7 +166,16 @@ const App = () => {
         setMessages(prev => {
           const newMsgs = [...prev];
           for (const m of incoming) {
-            newMsgs.push({ role: 'assistant', content: `[${m.sender}] ${m.message}` });
+            if (m.isHelper) {
+              newMsgs.push({
+                role: 'system',
+                isHelperResult: true,
+                helperRole: m.sender,
+                content: `[${m.sender}] ${m.message}`
+              });
+            } else {
+              newMsgs.push({ role: 'assistant', content: `[${m.sender}] ${m.message}` });
+            }
           }
           return newMsgs;
         });
@@ -1004,6 +1014,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Auto mode toggled. Now: ${next ? 'Ask before edits' : 'Auto execute edits'}` }]);
           return next;
         });
+      } else if (lowerQuery === '/helpers') {
+        setHelpersEnabled(prev => {
+          const next = !prev;
+          setMessages(m => [...m, { role: 'user', content: query }, { role: 'system', content: `[System] Helper agents toggled. Now: ${next ? 'Enabled' : 'Disabled'}` }]);
+          return next;
+        });
       } else if (lowerQuery === '/clone') {
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /clone <repo-url>' }]);
       } else if (lowerQuery.startsWith('/clone ')) {
@@ -1303,6 +1319,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               }
             }
 
+            // Trigger helper agents in solo mode if enabled
+            if (activeTeam === 'solo' && helpersEnabled) {
+              if ((funcName === 'edit_file' || funcName === 'write_file') && result && result.success !== false) {
+                const path = result.path || funcArgs.file_path;
+                if (path) {
+                  // Asynchronously fetch content and spawn helper reviewer
+                  (async () => {
+                    try {
+                      const fileContentResult = await executeToolCall('read_file', { file_path: path });
+                      const fileContent = fileContentResult?.content || '';
+                      const goal = `Review the changes made to the file "${path}". Here is the current complete content of the file:\n\n\`\`\`\n${fileContent}\n\`\`\`\n\nPlease provide a highly concise 2-3 line review of the file, checking for bugs, structure, and quality.`;
+                      await spawnHelperAgent('helper-reviewer', goal);
+                    } catch (e) {}
+                  })();
+                }
+              } else if (funcName === 'run_bash' && result && result.exitCode !== 0) {
+                const goal = `The following command failed with exit code ${result.exitCode}:\n\`${result.command}\`\n\nStdout:\n${result.stdout || ''}\n\nStderr:\n${result.stderr || ''}\n\nPlease analyze the failure and suggest a concrete, extremely concise 2-3 line fix.`;
+                spawnHelperAgent('helper-verifier', goal).catch(() => {});
+              }
+            }
+
             // Append raw result for API context (only tool_call_id and content)
             const rawContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
             conversation = [...conversation, {
@@ -1399,8 +1436,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         const wrapped = wrapText(msg.content, userTextWidth);
         allLines.push({ type: 'user', lines: wrapped });
       } else if (msg.role === 'system') {
-        const wrapped = wrapText(msg.content, usableWidth);
-        wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
+        if (msg.isHelperResult) {
+          const wrapped = wrapText(msg.content, usableWidth);
+          wrapped.forEach(line => allLines.push({
+            type: 'helper_result',
+            helperRole: msg.helperRole,
+            content: line
+          }));
+        } else {
+          const wrapped = wrapText(msg.content, usableWidth);
+          wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
+        }
       } else {
         if (msg.reasoning_content) {
           if (showThinking) {
@@ -1577,6 +1623,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             );
           } else if (line.type === 'system') {
             return <Text key={i} color="#d4a574">{line.content}</Text>;
+          } else if (line.type === 'helper_result') {
+            const roleColor = ROLE_COLORS[line.helperRole] || '#888888';
+            const roleIcon = ROLE_ICONS[line.helperRole] || '◇';
+            return (
+              <Text key={i} color="#737373" dimColor>
+                {chalk.hex(roleColor)(roleIcon)} {line.content}
+              </Text>
+            );
           } else if (line.type === 'reasoning_header') {
             return <Text key={i} color="#444444" bold>{line.content}</Text>;
           } else if (line.type === 'reasoning') {
@@ -1635,6 +1689,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         })}
       </Box>
 
+      {activeTeam === 'solo' && activeAgents.filter(a => a.isHelper && a.status === 'running').length > 0 && (
+        <Box flexDirection="column" marginY={0} paddingLeft={2}>
+          {activeAgents.filter(a => a.isHelper && a.status === 'running').map(agent => {
+            const roleColor = ROLE_COLORS[agent.role] || '#888888';
+            const roleIcon = ROLE_ICONS[agent.role] || '◇';
+            return (
+              <Box key={agent.id}>
+                <Text color="#737373" dimColor>
+                  {chalk.hex(roleColor)(roleIcon)} {agent.role.replace('helper-', '')}  {agent.lastActionDetail || 'analyzing...'}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       {showDropdown && (
         <CommandDropdown
           input={input}
@@ -1655,13 +1725,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         />
       ) : (
         <Box flexDirection="column" width="100%">
-          {activeTeam !== 'solo' && activeAgents.length > 0 && (
+          {activeAgents.length > 0 && (
             <Box flexDirection="column" marginY={1}>
-              <Text color="#2a2a2a">{"─".repeat(Math.min(termWidth - 4, 60))}  team: {activeTeam}</Text>
+              <Text color="#2a2a2a">{"─".repeat(Math.min(termWidth - 4, 60))}  {activeTeam === 'solo' ? 'helpers' : `team: ${activeTeam}`}</Text>
               {activeAgents.map((agent, idx) => {
-                const roleColor = ROLE_COLORS[agent.role || 'manager'] || '#d4a574';
+                const isHelper = agent.isHelper;
+                const roleColor = isHelper ? '#737373' : (ROLE_COLORS[agent.role || 'manager'] || '#d4a574');
                 const roleIcon = ROLE_ICONS[agent.role || 'manager'] || '•';
-                const statusColor = agent.status === 'running' ? '#d4a574' : agent.status === 'idle' ? '#98c99a' : agent.status === 'queued' ? '#444444' : agent.status === 'failed' ? '#c97070' : '#98c99a';
+                const statusColor = isHelper ? '#555555' : (agent.status === 'running' ? '#d4a574' : agent.status === 'idle' ? '#98c99a' : agent.status === 'queued' ? '#444444' : agent.status === 'failed' ? '#c97070' : '#98c99a');
                 const statusIcon = agent.status === 'running' ? '●' : agent.status === 'queued' ? '○' : agent.status === 'idle' ? '✓' : agent.status === 'failed' ? '!' : '✓';
                 const actionText = agent.status === 'running' ? (agent.lastActionDetail || 'working...') : agent.status === 'queued' ? 'waiting' : agent.status === 'idle' ? 'done' : agent.status;
                 const isExpanded = expandedAgent === agent.id;
@@ -1674,7 +1745,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                       <Box width={14}><Text color={roleColor}>{roleIcon} {agent.role || 'agent'}</Text></Box>
                       <Box width={11}><Text color={statusColor}>[{agent.status === 'idle' ? 'done' : agent.status}]</Text></Box>
                       <Box width={4}><Text color="#444444">{Math.round((Date.now() - agent.createdAt) / 1000)}s</Text></Box>
-                      <Box><Text color="#888888">  {actionText.slice(0, 40)}</Text></Box>
+                      <Box><Text color={isHelper ? '#525252' : '#888888'}>  {actionText.slice(0, 40)}</Text></Box>
                       <Box marginLeft={1}><Text color="#444444">{expandIcon}</Text></Box>
                     </Box>
                     {isExpanded && agent.log.length > 0 && (
@@ -1711,10 +1782,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               <Text color="#D77757">team: {activeTeam}</Text>
             </>
           ) : null}
-          {activeAgents.filter(a => a.status === 'running').length > 0 ? (
+          {activeAgents.filter(a => a.status === 'running' && !a.isHelper).length > 0 ? (
             <>
               <Text color="#444444">  ·  </Text>
-              <Text color="#d4a574">{activeAgents.filter(a => a.status === 'running').length} running</Text>
+              <Text color="#d4a574">{activeAgents.filter(a => a.status === 'running' && !a.isHelper).length} running</Text>
             </>
           ) : (
             <>

@@ -163,6 +163,12 @@ When you receive a task:
 RULES:
 - Do NOT touch application business logic or UI code.
 - Always report back to the manager when done.`,
+  'helper-reviewer': `You are an automated lightweight code reviewer.
+Your job is to review the code changes made in a single file and provide an extremely concise, 2-3 line review.
+Highlight potential bugs, stylistic issues, or quick improvements. Be polite but direct. Do not write full files, just give brief, actionable feedback.`,
+  'helper-verifier': `You are an automated lightweight error verifier.
+Your job is to inspect a bash command failure (stderr/stdout) and suggest a direct, concrete fix.
+Be extremely concise (2-3 lines). Show the exact command or code change needed to fix the error.`,
 };
 
 // ── AI call ───────────────────────────────────────────────────────────────────
@@ -544,3 +550,65 @@ export async function handleTeamMessage(args, _toolName, context = {}) {
 
   return { type: 'generic', message: `Message sent to ${role}.` };
 }
+
+export async function spawnHelperAgent(role, goal, model = null) {
+  const id = nextAgentId();
+  const agent = {
+    id,
+    role,
+    model: model || activeModel,
+    goal,
+    status: 'running',
+    createdAt: Date.now(),
+    iterations: 0,
+    lastAction: null,
+    lastActionDetail: 'analyzing...',
+    result: null,
+    error: null,
+    log: [],
+    conversation: null,
+    messageQueue: [],
+    isHelper: true
+  };
+
+  agents.set(id, agent);
+
+  // Run a single-iteration loop asynchronously
+  (async () => {
+    try {
+      const systemPrompt = ROLE_SYSTEM_PROMPTS[role] || `You are an automated solo assistant for role ${role}.`;
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: goal }
+      ];
+      agent.conversation = messages;
+      agent.iterations = 1;
+      agent.log.push(`[${new Date().toLocaleTimeString()}] running lightweight helper loop...`);
+
+      const response = await callAI(messages, agent.model);
+      agent.conversation.push(response);
+      agent.result = response.content;
+      agent.status = 'idle';
+      agent.lastActionDetail = 'done';
+      agent.log.push(`[${new Date().toLocaleTimeString()}] completed analysis`);
+
+      // Post result to userMessageQueue so App.jsx picks it up
+      userMessageQueue.push({
+        sender: role,
+        message: response.content,
+        isHelper: true,
+        agentId: id
+      });
+    } catch (err) {
+      agent.status = 'failed';
+      agent.error = err.message;
+      agent.log.push(`[${new Date().toLocaleTimeString()}] ERROR: ${err.message}`);
+    }
+  })().catch(err => {
+    agent.status = 'failed';
+    agent.error = err.message;
+  });
+
+  return id;
+}
+

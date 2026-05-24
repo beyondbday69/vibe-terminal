@@ -3,34 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Todo App</title>
+  <title>Todo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="app">
-    <header class="header">
-      <h1>Todos</h1>
+  <div class="app">
+    <header>
+      <h1>Todo</h1>
+      <p class="subtitle">Stay focused, get things done.</p>
     </header>
 
-    <section class="input-section">
-      <form id="todo-form" class="todo-form" autocomplete="off">
+    <form id="todo-form" class="todo-form" autocomplete="off">
+      <div class="input-wrap">
         <input
           id="todo-input"
-          class="todo-input"
           type="text"
           placeholder="What needs to be done?"
           aria-label="New todo"
         />
-        <button type="submit" class="add-btn" aria-label="Add todo">Add</button>
-      </form>
-    </section>
+        <button type="submit" class="add-btn" aria-label="Add todo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </div>
+    </form>
 
-    <section class="list-section">
-      <ul id="todo-list" class="todo-list" role="list"></ul>
-    </section>
+    <ul id="todo-list" class="todo-list" role="list"></ul>
 
     <footer class="footer" id="footer">
-      <span class="items-left" id="items-left">0 items left</span>
+      <span class="count" id="items-left">0 items left</span>
 
       <nav class="filters" aria-label="Todo filters">
         <button class="filter-btn active" data-filter="all">All</button>
@@ -38,11 +38,11 @@
         <button class="filter-btn" data-filter="completed">Completed</button>
       </nav>
 
-      <button class="clear-completed" id="clear-completed" type="button">
+      <button class="clear-btn" id="clear-completed" type="button">
         Clear completed
       </button>
     </footer>
-  </main>
+  </div>
 
   <script src="app.js"></script>
 </body>

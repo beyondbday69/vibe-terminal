@@ -38,7 +38,9 @@ export const ROLE_COLORS = {
   "backend-dev":"#7ec8c8",
   researcher:   "#d4a574",
   reviewer:     "#98c99a",
-  devops:       "#e0e0e0"
+  devops:       "#e0e0e0",
+  "helper-reviewer": "#98c99a",
+  "helper-verifier": "#c97070"
 };
 
 export const ROLE_ICONS = {
@@ -49,6 +51,8 @@ export const ROLE_ICONS = {
   researcher:    "○",
   reviewer:      "◉",
   devops:        "◫",
+  "helper-reviewer": "◉",
+  "helper-verifier": "⚠️"
 };
 
 export const SYNTAX_COLORS = {

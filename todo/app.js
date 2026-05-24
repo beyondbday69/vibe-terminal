@@ -75,11 +75,7 @@
     itemsLeftLabel.textContent = `${activeCount} ${noun} left`;
 
     // Toggle footer visibility
-    if (todos.length === 0) {
-      footer.style.display = 'none';
-    } else {
-      footer.style.display = '';
-    }
+    footer.classList.toggle('visible', todos.length > 0);
 
     // Enable/disable clear completed
     clearCompletedBtn.disabled = completedCount === 0;
