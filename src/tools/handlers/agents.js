@@ -12,11 +12,9 @@ async function getExecutor() {
 }
 
 async function getToolsDefinition() {
-  if (!toolsDefinition) {
-    const definitions = await import('../definitions.js');
-    toolsDefinition = definitions.toolsDefinition;
-  }
-  return toolsDefinition;
+  const definitions = await import('../definitions.js');
+  const mcp = await import('../../utils/mcp.js');
+  return [...definitions.toolsDefinition, ...mcp.getMcpTools()];
 }
 
 // In-memory agent store

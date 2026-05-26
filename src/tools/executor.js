@@ -10,6 +10,8 @@ import { handleCronCreate, handleCronDelete, handleCronList } from './handlers/c
 import { handleAgentSpawn, handleAgentList, handleAgentGet, handleAgentStop, handleTeamSpawn, handleAgentReport, handleAgentReportAll, handleTeamMessage } from './handlers/agents.js';
 import { handleConceptual } from './handlers/conceptual.js';
 
+import { executeMcpToolCall } from '../utils/mcp.js';
+
 const HANDLERS = {
   run_bash: handleRunBash,
   read_file: handleReadFile,
@@ -47,7 +49,33 @@ const HANDLERS = {
   invoke_skill: handleConceptual,
 };
 
+function stripAtMention(val) {
+  if (typeof val !== 'string') return val;
+  let s = val.trim();
+  if (s.startsWith('@[') && s.endsWith(']')) {
+    s = s.slice(2, -1);
+  } else if (s.startsWith('@[')) {
+    s = s.slice(2);
+    if (s.endsWith(']')) s = s.slice(0, -1);
+  } else if (s.startsWith('@')) {
+    s = s.slice(1);
+  }
+  return s.trim();
+}
+
 export const executeToolCall = async (toolName, toolArgs, context = {}) => {
+  if (toolArgs && typeof toolArgs === 'object') {
+    if (typeof toolArgs.file_path === 'string') {
+      toolArgs.file_path = stripAtMention(toolArgs.file_path);
+    }
+    if (typeof toolArgs.path === 'string') {
+      toolArgs.path = stripAtMention(toolArgs.path);
+    }
+  }
+
+  if (typeof toolName === 'string' && toolName.startsWith('mcp__')) {
+    return await executeMcpToolCall(toolName, toolArgs);
+  }
   const handler = HANDLERS[toolName];
   if (!handler) {
     return { type: 'error', message: `Unknown tool "${toolName}".` };

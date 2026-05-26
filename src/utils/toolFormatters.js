@@ -22,8 +22,20 @@ function truncateLine(line, maxWidth) {
 
 function wrapInBox(label, contentLines, termWidth) {
   const boxW = Math.min(termWidth - 4, 78);
-  const topLine = '┌─ ' + label + ' ' + '─'.repeat(Math.max(0, boxW - label.length - 5)) + '┐';
-  const botLine = '└' + '─'.repeat(boxW - 2) + '┘';
+  
+  let colorizedLabel = label;
+  if (label.includes(' · ')) {
+    const [action, file] = label.split(' · ');
+    colorizedLabel = `${chalk.hex('#d4a574')(action)} ${chalk.hex('#555555')('·')} ${chalk.hex('#7eb8f7')(file)}`;
+  } else {
+    colorizedLabel = chalk.hex('#7eb8f7')(label);
+  }
+
+  const borderLeft = chalk.hex('#2a2a2a')('┌─ ');
+  const borderRight = chalk.hex('#2a2a2a')(' ' + '─'.repeat(Math.max(0, boxW - label.length - 5)) + '┐');
+  const topLine = borderLeft + colorizedLabel + borderRight;
+  
+  const botLine = chalk.hex('#2a2a2a')('└' + '─'.repeat(boxW - 2) + '┘');
   const result = [];
   result.push({ type: 'box_border', content: topLine });
   contentLines.forEach(l => {

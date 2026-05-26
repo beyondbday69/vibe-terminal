@@ -15,10 +15,18 @@ function formatMarkdown(text) {
   if (!text) return '';
   let result = text;
   
-  // Format code blocks (dimmed markers, light gray content)
-  result = result.replace(/```([\w]*)\n([\s\S]*?)```/g, (match, lang, code) => chalk.dim('```' + lang + '\n') + chalk.hex('#e5e5e5')(code) + chalk.dim('```'));
-  // Inline code backticks (yellow)
-  result = result.replace(/`([^`]+)`/g, (match, p1) => chalk.hex('#FBBF24')(p1));
+  const codeBlocks = [];
+  // Format code blocks (plain gray text with background)
+  result = result.replace(/```([^\n]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    // Add subtle gray background and light gray text
+    const hl = chalk.hex('#e5e5e5')(code).split('\n').map(line => chalk.bgHex('#222222')(line)).join('\n');
+    
+    codeBlocks.push((lang && lang.trim() ? chalk.dim.italic(lang.trim()) + '\n' : '') + hl);
+    return `@@@BLOCK_${codeBlocks.length - 1}@@@`;
+  });
+
+  // Inline code backticks (soft blue), avoiding newlines to prevent stream flickering
+  result = result.replace(/`([^`\n]+)`/g, (match, p1) => chalk.hex('#7eb8f7')(p1));
   // Bold (white bold)
   result = result.replace(/\*\*\*(.+?)\*\*\*/g, (match, p1) => chalk.bold.italic.white(p1));
   result = result.replace(/\*\*(.+?)\*\*/g, (match, p1) => chalk.bold.white(p1));
@@ -30,13 +38,26 @@ function formatMarkdown(text) {
   result = result.replace(/^(#{1,6})\s+(.+)$/gm, (match, p1, p2) => chalk.bold.hex('#D77757')(p2));
   // Links (brand orange)
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => `${chalk.underline.hex('#D77757')(p1)} (${chalk.dim(p2)})`);
+  // Highlight @ mentions like @[filename] or @filename
+  result = result.replace(/(^|\s)@\[([^\]]+)\]/g, (match, space, p1) => space + chalk.bold.hex('#D77757')('@' + p1));
+  result = result.replace(/(^|\s)@([a-zA-Z0-9_\-\.\/]+)/g, (match, space, p1) => space + chalk.bold.hex('#D77757')('@' + p1));
   // Bullet markers (keep text, color marker)
   result = result.replace(/^(\s*[-*+]\s+)/gm, (match, p1) => chalk.hex('#D77757')(p1));
   // Numbered list markers
   result = result.replace(/^(\s*\d+\.\s+)/gm, (match, p1) => chalk.hex('#D77757')(p1));
 
+  // Restore code blocks
+  codeBlocks.forEach((block, i) => {
+    result = result.replace(`@@@BLOCK_${i}@@@`, block);
+  });
+
   // Wrap the entire output in white so plain text remains white
   return chalk.white(result);
+}
+
+function stripAnsi(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 const getRepoName = (url) => {
@@ -48,7 +69,7 @@ const getRepoName = (url) => {
   }
   return name;
 };
-import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, generateSessionId } from './utils/sessions.js';
+import { saveSession, loadSession, listSessions, deleteSession, setSessionFavorite, repairLegacySession, generateSessionId } from './utils/sessions.js';
 import { listFiles } from './utils/fileList.js';
 import { LOGO_ROWS, COLORS, SYSTEM_PROMPT_TEMPLATE, ROLE_COLORS, ROLE_ICONS } from './constants.js';
 import { loadEnv, saveEnv } from './utils/env.js';
@@ -64,11 +85,13 @@ import { SessionPicker } from './components/SessionPicker.jsx';
 import { CommandDropdown, COMMANDS } from './components/CommandDropdown.jsx';
 import { ToolConfirmation } from './components/ToolConfirmation.jsx';
 import { WorkspaceSelector } from './components/WorkspaceSelector.jsx';
+import { ProviderSelector } from './components/ProviderSelector.jsx';
 
 // Tools Engine
 import { toolsDefinition } from './tools/definitions.js';
 import { executeToolCall } from './tools/executor.js';
 import { setApiKey, setBaseUrl, setModel, getAgents, handleTeamMessage, popUserMessages, popTeamChatLog, handleTeamSpawn, spawnHelperAgent } from './tools/handlers/agents.js';
+import { getMcpTools, initServers, stopAllServers, activeServers, addServer, removeServer } from './utils/mcp.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.vibe-code');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -98,8 +121,33 @@ const saveConfig = async (updates) => {
 
 const saveModel = async (model) => saveConfig({ activeModel: model });
 
+const getApiMessages = (msgs, systemPrompt = null) => {
+  const filtered = msgs.filter(m => m.role !== 'system' && m.role !== 'tool_call').map(m => {
+    if (m.role === 'user') {
+      return { role: 'user', content: m.apiContent || m.content };
+    }
+    if (m.role === 'assistant') {
+      const out = { role: 'assistant', content: m.content || '' };
+      if (m.tool_calls && m.tool_calls.length > 0) {
+        out.tool_calls = m.tool_calls;
+      }
+      if (m.reasoning_content) {
+        out.reasoning_content = m.reasoning_content;
+      }
+      return out;
+    }
+    if (m.role === 'tool') {
+      return { role: 'tool', tool_call_id: m.tool_call_id, content: m.content };
+    }
+    return { role: m.role, content: m.content };
+  });
+  return systemPrompt ? [systemPrompt, ...filtered] : filtered;
+};
+
 let toolIdCounter = 0;
 const nextToolId = () => `tool_${++toolIdCounter}`;
+
+const messageLinesCache = new WeakMap();
 
 const App = () => {
   const { columns: termWidth, rows: termHeight } = useTerminalSize();
@@ -117,6 +165,13 @@ const App = () => {
     process.stdout.write('\x1b[?1003l');
   }, []);
 
+  // Cleanup MCP servers on unmount
+  useEffect(() => {
+    return () => {
+      stopAllServers();
+    };
+  }, []);
+
   const [rawInput, setRawInput] = useState('');
   const MOUSE_SEQ = /\x1b\[<\d+;\d+;\d+[Mm]/g;
   const input = rawInput.replace(MOUSE_SEQ, '');
@@ -132,12 +187,34 @@ const App = () => {
   const [activeModel, setActiveModel] = useState('kimi-k2.6');
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [messages, setMessages] = useState([]);
+  const [sessionTitle, setSessionTitle] = useState(null);
+  const isGeneratingTitle = React.useRef(false);
   const [askBeforeEdits, setAskBeforeEdits] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [confirmIndex, setConfirmIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = React.useRef(null);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showProviderSelector, setShowProviderSelector] = useState(false);
+  const [providers, setProviders] = useState([
+    {
+      name: 'opencode',
+      baseUrl: 'https://opencode.ai/zen/go/v1',
+      apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN',
+      modelsUrl: 'https://opencode.ai/zen/go/v1/models'
+    },
+    {
+      name: 'nvidia',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      apiKey: ''
+    },
+    {
+      name: 'opengateway',
+      baseUrl: 'https://opengateway.gitlawb.com/v1',
+      apiKey: '',
+      modelsUrl: 'https://opengateway.gitlawb.com/v1/models'
+    }
+  ]);
   const [chatScroll, setChatScroll] = useState(0);
   const [showAgentDetail, setShowAgentDetail] = useState(null);
   const [sessionId, setSessionId] = useState(null);
@@ -157,6 +234,8 @@ const App = () => {
   const [workspaces, setWorkspaces] = useState([]);
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
   const [availableWorkspaces, setAvailableWorkspaces] = useState([]);
+  const [appVersion, setAppVersion] = useState('');
+  const [updateAvailable, setUpdateAvailable] = useState('');
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -229,10 +308,11 @@ const App = () => {
       if (action.type === 'resume') {
         const session = await loadSession(action.session.id);
         if (session) {
-          setMessages(session.messages);
           setSessionId(session.id);
+          setSessionTitle(session.title || null);
+          isGeneratingTitle.current = !!session.title;
           if (session.model) { setActiveModel(session.model); saveModel(session.model); }
-          setMessages(prev => [...prev, { role: 'system', content: `Resumed: ${session.title || session.id}` }]);
+          setMessages([...session.messages, { role: 'system', content: `Resumed: ${session.title || session.id}` }]);
         }
       } else if (action.type === 'delete') {
         await deleteSession(action.session.id);
@@ -300,8 +380,46 @@ const App = () => {
     if (messages.length === 0) return;
     const id = sessionId || generateSessionId();
     if (!sessionId) setSessionId(id);
-    saveSession(id, messages, activeModel).catch(() => {});
-  }, [messages]);
+
+    // Auto-generate title after the first user+assistant exchange
+    if (messages.length >= 2 && !sessionTitle && !isGeneratingTitle.current && provider && activeModel) {
+      isGeneratingTitle.current = true;
+      const systemPrompt = "You are a title generator. Read the conversation and generate a short 3-5 word title for it. Reply ONLY with the title. No quotes, no markdown, no punctuation.";
+      const sample = messages.filter(m => m.role !== 'system').slice(0, 4).map(m => `${m.role}: ${m.content}`).join('\n');
+      
+      const payload = {
+        model: activeModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: sample }
+        ],
+        stream: false,
+        max_tokens: 15
+      };
+
+      fetch(`${provider.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${provider.apiKey}`
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.choices && data.choices[0] && data.choices[0].message) {
+          const generated = data.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
+          setSessionTitle(generated);
+          saveSession(id, messages, activeModel, generated).catch(() => {});
+        }
+      })
+      .catch(() => {
+        isGeneratingTitle.current = false;
+      });
+    }
+
+    saveSession(id, messages, activeModel, sessionTitle).catch(() => {});
+  }, [messages, sessionId, provider, activeModel, sessionTitle]);
 
 
   // Refresh agent detail overlay every second when open
@@ -324,6 +442,22 @@ const App = () => {
       const config = await loadConfig();
       const env = await loadEnv();
 
+      // Load custom providers
+      if (config.providers && Array.isArray(config.providers)) {
+        setProviders(prev => {
+          const merged = [...prev];
+          config.providers.forEach(p => {
+            const existsIdx = merged.findIndex(existing => existing.name === p.name);
+            if (existsIdx >= 0) {
+              merged[existsIdx] = p;
+            } else {
+              merged.push(p);
+            }
+          });
+          return merged;
+        });
+      }
+
       // Load saved provider
       if (config.provider) {
         setProvider(config.provider);
@@ -339,6 +473,7 @@ const App = () => {
       const finalKey = providerKey || envKey || process.env.OPENAI_API_KEY || '';
       if (finalKey) {
         setApiKey(finalKey);
+        process.env.OPENAI_API_KEY = finalKey;
       }
 
       // Load base URL and models URL from .env
@@ -369,6 +504,35 @@ const App = () => {
         saveConfig({ workspaces: loadedWorkspaces });
       }
       setWorkspaces(loadedWorkspaces);
+
+      if (config.mcpServers) {
+        initServers(config.mcpServers).catch(() => {});
+      }
+
+      // Auto update and version check
+      try {
+        const pkgUrl = new URL('../package.json', import.meta.url);
+        const pkgTxt = await fs.readFile(pkgUrl, 'utf-8');
+        const pkgJson = JSON.parse(pkgTxt);
+        setAppVersion(pkgJson.version);
+        
+        const { exec } = await import('child_process');
+        exec(`npm view ${pkgJson.name} version`, (err, stdout) => {
+          if (!err && stdout) {
+            const latest = stdout.trim();
+            if (latest !== pkgJson.version && latest) {
+              setUpdateAvailable(`Updating to v${latest} in background...`);
+              exec(`npm install -g ${pkgJson.name}@latest`, (installErr) => {
+                if (!installErr) {
+                  setUpdateAvailable(`Auto-updated to v${latest}! Restart vibe to apply.`);
+                } else {
+                  setUpdateAvailable(`Update to v${latest} failed.`);
+                }
+              });
+            }
+          }
+        });
+      } catch (err) {}
     })();
   }, []);
 
@@ -613,7 +777,7 @@ const App = () => {
 
     if (trimmedQuery.startsWith('/')) {
       if (lowerQuery === '/help') {
-        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /cd <path>    - Change the current workspace directory\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
+        const helpText = `[Help] Available Commands:\n  /help         - Show this message\n  /model        - Open the interactive model selector\n  /model <id>   - Switch directly to a model\n  /apikey <key> - Set and save API key\n  /provider     - Switch API provider (opencode/nvidia/opengateway/custom)\n  /rewind       - List checkpoints\n  /rewind <n>   - Rewind to checkpoint N\n  /branch <n>   - Fork from checkpoint N\n  /init         - Analyze codebase and create CLAUDE.md\n  /resume       - List saved sessions\n  /resume <id>  - Restore a saved session\n  /delete <id>  - Delete a saved session\n  /mcp          - List configured MCP servers and their tools\n  /mcp add <name> <command> [args...] - Register and connect an MCP server\n  /mcp remove <name> - Remove an MCP server and its tools\n  /clear        - Clear the chat history\n  /exit         - Exit the app\n  /clone <url>  - Clone a git repository and switch workspace\n  /cd <path>    - Change the current workspace directory\n  /auth github <token> - Set GitHub token for git pushing\n  Ctrl+M        - Shortcut to open model selector\n  Ctrl+T        - Toggle thinking process visibility\n  Ctrl+O        - View agent details (when agent is running)\n\nTools: bash, file ops, search, web, tasks, cron, agents`;
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: helpText }]);
       } else if (lowerQuery === '/team') {
         setInput('');
@@ -652,104 +816,81 @@ const App = () => {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Model switched to: ${newModel}` }]);
         }
       } else if (lowerQuery === '/apikey') {
-        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] Usage: /apikey <your-api-key>\nThe key is saved to ~/.vibe-code/.env' }]);
+        const extra = provider?.name === 'opengateway' ? '\nGet your OpenGateway key here: https://gitlawb.com/opengateway/dashboard' : '';
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Usage: /apikey <your-api-key>\nThe key is saved to ~/.vibe-code/.env${extra}` }]);
       } else if (lowerQuery.startsWith('/apikey ')) {
         const newKey = trimmedQuery.slice(8).trim();
         if (newKey) {
           try {
             await saveEnv('OPENAI_API_KEY', newKey);
             setApiKey(newKey);
+            process.env.OPENAI_API_KEY = newKey;
+            
+            const updatedProvider = { ...provider, apiKey: newKey };
+            setProvider(updatedProvider);
+            setProviders(prev => {
+              const next = [...prev];
+              const idx = next.findIndex(p => p.name === provider.name);
+              if (idx >= 0) next[idx] = updatedProvider;
+              saveConfig({ provider: updatedProvider, providers: next });
+              return next;
+            });
+            
             setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: '[System] API key saved to ~/.vibe-code/.env' }]);
           } catch (err) {
             setMessages(prev => [...prev, { role: 'user', content: '/apikey ****' }, { role: 'system', content: `[Error] Failed to save API key: ${err.message}` }]);
           }
         }
-      } else if (lowerQuery === '/provider') {
-        const lines = [
-          `[Provider] Current: ${provider.name}`,
-          `  Base URL: ${provider.baseUrl}`,
-          `  Models URL: ${provider.modelsUrl || '(default: baseUrl/models)'}`,
-          `  API Key: ${provider.apiKey ? '****' + provider.apiKey.slice(-4) : '(not set)'}`,
-          '',
-          'Usage:',
-          '  /provider opencode                       - Use opencode.ai (default)',
-          '  /provider nvidia <api_key>               - Use NVIDIA NIM API',
-          '  /provider custom <url> <key> [models_url]- Use custom OpenAI-compatible API',
-        ];
-        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
-      } else if (lowerQuery.startsWith('/provider ')) {
-        const parts = trimmedQuery.split(/\s+/);
-        const providerName = parts[1]?.toLowerCase();
-        let newProvider;
-        if (providerName === 'opencode') {
-          newProvider = {
-            name: 'opencode',
-            baseUrl: 'https://opencode.ai/zen/go/v1',
-            apiKey: 'sk-lnuJ2jLlii0Z00TEKuQBugkcw25XJGU3Y8USdUXZzFKWuB8ppTE3Fzme9AzKbKdN',
-            modelsUrl: 'https://opencode.ai/zen/go/v1/models'
-          };
-        } else if (providerName === 'nvidia') {
-          const key = parts[2] || '';
-          newProvider = { name: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: key };
-          if (key) await saveEnv('NVIDIA_API_KEY', key);
-        } else if (providerName === 'custom') {
-          const url = parts[2] || '';
-          const key = parts[3] || '';
-          const modelsUrl = parts[4] || '';
-          if (!url) {
-            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /provider custom <base_url> <api_key> [models_url]' }]);
-            setInput('');
-            return;
-          }
-          newProvider = { name: 'custom', baseUrl: url, apiKey: key };
-          if (modelsUrl) {
-            newProvider.modelsUrl = modelsUrl;
-            await saveEnv('CUSTOM_MODELS_URL', modelsUrl);
-          }
-          if (key) await saveEnv('CUSTOM_API_KEY', key);
-          await saveEnv('CUSTOM_BASE_URL', url);
-        } else {
-          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Unknown provider. Use: opencode, nvidia, custom' }]);
-          setInput('');
-          return;
-        }
-        setProvider(newProvider);
-        setBaseUrl(newProvider.baseUrl);
-        if (newProvider.apiKey) {
-          setApiKey(newProvider.apiKey);
-          await saveEnv('OPENAI_API_KEY', newProvider.apiKey);
-        }
-        await saveEnv('BASE_URL', newProvider.baseUrl);
-        if (newProvider.modelsUrl) {
-          await saveEnv('MODELS_URL', newProvider.modelsUrl);
-        } else {
-          await saveEnv('MODELS_URL', '');
-        }
-        await saveConfig({ provider: newProvider });
-        // Fetch models from new provider
-        try {
-          const modelKey = newProvider.apiKey || process.env.OPENAI_API_KEY || '';
-          const modelsUrl = newProvider.modelsUrl || `${newProvider.baseUrl}/models`;
-          const res = await fetch(modelsUrl, {
-            headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
-          });
-          const json = await res.json();
-          if (json && json.data) {
-          setAvailableModels(json.data.map(m => m.id));
-        } else {
-          setAvailableModels(['gpt-5.5']);
-        }
-        } catch {
-          setAvailableModels([]);
-        }
-        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Switched to provider: ${newProvider.name} (${newProvider.baseUrl})` }]);
+      } else if (lowerQuery === '/provider' || lowerQuery.startsWith('/provider ')) {
+        setInput('');
+        setShowProviderSelector(true);
+        return;
       } else if (lowerQuery === '/clear') {
         setMessages([]);
+        setSessionTitle(null);
+        isGeneratingTitle.current = false;
         setSessionId(null);
         setChatScroll(0);
         setTokenUsage({ used: 0, limit: 128000 });
         // Clear entire terminal including scrollback
         process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+      } else if (lowerQuery === '/export') {
+        try {
+          const cwd = process.cwd();
+          
+          let requests = 0;
+          let tasks = [];
+          
+          messages.forEach(m => {
+            if (m.role === 'user') requests++;
+            
+            // Extract tasks from assistant messages
+            if (m.role === 'assistant' && m.content) {
+              const lines = m.content.split('\n');
+              lines.forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]') || trimmed.startsWith('* [ ]') || trimmed.startsWith('* [x]')) {
+                  tasks.push(trimmed);
+                }
+              });
+            }
+          });
+
+          const titleStr = sessionTitle ? `## Session: ${sessionTitle}\n\n` : '';
+          const report = `# Vibe Terminal Session Report\n\n${titleStr}` +
+                         `### Statistics\n` +
+                         `- **Requests Sent:** ${requests}\n` +
+                         `- **Tokens Used:** ${tokenUsage.used.toLocaleString()} / ${tokenUsage.limit.toLocaleString()}\n\n` +
+                         `### Tasks & Todo List\n\n` +
+                         (tasks.length > 0 ? tasks.join('\n') : '*No tasks found in this session.*') + '\n';
+                         
+          const outPath = path.join(cwd, 'vibe-report.md');
+          await fs.writeFile(outPath, report, 'utf-8');
+          
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Session report exported to ${outPath}` }]);
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Failed to export session: ${err.message}` }]);
+        }
       } else if (lowerQuery === '/rewind') {
         if (!sessionId) {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No active session to rewind. Start a conversation first.' }]);
@@ -800,7 +941,125 @@ const App = () => {
         }
         setInput('');
         return;
+      } else if (lowerQuery === '/mcp' || lowerQuery === '/mcp list') {
+        const lines = ['[MCP] Configured Servers:\n'];
+        if (activeServers.size === 0) {
+          lines.push('  No MCP servers configured. Add one with:');
+          lines.push('  /mcp add <name> <command> [args...]');
+          lines.push('  /mcp add <name> <url>');
+        } else {
+          for (const [name, server] of activeServers.entries()) {
+            const statusStr = server.status === 'connected' ? chalk.green('Connected') :
+                            server.status === 'connecting' ? chalk.yellow('Connecting...') :
+                            server.status === 'failed' ? chalk.red('Failed') : chalk.gray('Disconnected');
+            lines.push(`  • ${chalk.bold.hex('#D77757')(name)}: ${statusStr}`);
+            if (server.url) {
+              lines.push(`    URL: ${server.url}`);
+            } else {
+              lines.push(`    Command: ${server.command} ${server.args.join(' ')}`);
+            }
+            if (server.status === 'connected') {
+              lines.push(`    Tools (${server.tools.length}): ${server.tools.map(t => t.name).join(', ')}`);
+            }
+            if (server.error) {
+              lines.push(`    Error: ${server.error}`);
+            }
+            if (server.errorLogs.length > 0) {
+              lines.push(`    Logs (last 3 lines):`);
+              server.errorLogs.slice(-3).forEach(log => {
+                lines.push(`      ${chalk.dim(log)}`);
+              });
+            }
+            lines.push('');
+          }
+        }
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: lines.join('\n') }]);
+        setInput('');
+        return;
+      } else if (lowerQuery.startsWith('/mcp add ')) {
+        const parts = trimmedQuery.split(/\s+/);
+        const name = parts[2];
+        const commandOrUrl = parts[3];
+        const args = parts.slice(4);
+        if (!name || !commandOrUrl) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage:\n  /mcp add <name> <command> [args...]\n  /mcp add <name> <url>\n\nExample:\n  /mcp add filesystem npx -y @modelcontextprotocol/server-filesystem /path/to/folder\n  /mcp add HianimeDocs https://gitmcp.io/beyondbday69/Hianime' }]);
+          setInput('');
+          return;
+        }
+
+        setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] Connecting to MCP server "${name}"...` }]);
+        try {
+          let finalCommand = commandOrUrl;
+          let finalArgs = args;
+          let url = '';
+          let configEntry = { command: commandOrUrl, args };
+
+          if (commandOrUrl.startsWith('http://') || commandOrUrl.startsWith('https://')) {
+            finalCommand = 'npx';
+            finalArgs = ['-y', 'mcp-remote', commandOrUrl];
+            url = commandOrUrl;
+            configEntry = { url: commandOrUrl };
+          }
+
+          const client = await addServer(name, finalCommand, finalArgs, url);
+          const config = await loadConfig();
+          const mcpServers = config.mcpServers || {};
+          mcpServers[name] = configEntry;
+          await saveConfig({ mcpServers });
+
+          setMessages(prev => [...prev, { role: 'system', content: `[System] Successfully connected to MCP server "${name}"!\nRegistered tools: ${client.tools.map(t => t.name).join(', ')}` }]);
+        } catch (err) {
+          setMessages(prev => [...prev, { role: 'system', content: `[Error] Failed to connect to MCP server "${name}": ${err.message}` }]);
+        }
+        setInput('');
+        return;
+      } else if (lowerQuery.startsWith('/mcp remove ') || lowerQuery.startsWith('/mcp delete ')) {
+        const parts = trimmedQuery.split(/\s+/);
+        const name = parts[2];
+        if (!name) {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Usage: /mcp remove <name>' }]);
+          setInput('');
+          return;
+        }
+
+        const removed = removeServer(name);
+        if (removed) {
+          const config = await loadConfig();
+          const mcpServers = config.mcpServers || {};
+          delete mcpServers[name];
+          await saveConfig({ mcpServers });
+
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[System] MCP server "${name}" removed.` }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] MCP server "${name}" not found.` }]);
+        }
+        setInput('');
+        return;
       } else if (lowerQuery === '/resume' || lowerQuery.startsWith('/resume ')) {
+        const arg = query.slice(7).trim();
+        if (arg.startsWith('http://') || arg.startsWith('https://')) {
+          setIsLoading(true);
+          try {
+            const res = await fetch(arg);
+            const session = await res.json();
+            if (session && session.messages) {
+              const repaired = repairLegacySession(session.messages);
+              setSessionId(session.id || `url_${Date.now()}`);
+              setSessionTitle(session.title || null);
+              isGeneratingTitle.current = !!session.title;
+              if (session.model) { setActiveModel(session.model); saveModel(session.model); }
+              setMessages([...repaired, { role: 'user', content: query }, { role: 'system', content: `[System] Resumed session from URL.` }]);
+            } else {
+              setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[Error] Invalid session JSON from URL.' }]);
+            }
+          } catch (err) {
+            setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Failed to load URL: ${err.message}` }]);
+          }
+          setIsLoading(false);
+          setInput('');
+          return;
+        }
+
         const sessions = await listSessions();
         if (sessions.length === 0) {
           setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: '[System] No saved sessions found.' }]);
@@ -849,7 +1108,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         setInput('');
         setIsLoading(true);
         try {
-          const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
+          const apiMessages = getApiMessages(conversation);
           const res = await fetch(`${provider.baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -859,7 +1118,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             body: JSON.stringify({
               model: activeModel,
               messages: apiMessages,
-              tools: toolsDefinition,
+              tools: [...toolsDefinition, ...getMcpTools()],
               stream: true,
               stream_options: { include_usage: true },
             }),
@@ -953,14 +1212,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
                 const rawContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
                 conversation = [...conversation, { role: 'tool', tool_call_id: call.id, content: rawContent }];
               }
-              const apiMessages = conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call');
+              const apiMessages = getApiMessages(conversation);
               const res2 = await fetch(`${provider.baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
                   ...(provider.apiKey || process.env.OPENAI_API_KEY ? { 'Authorization': `Bearer ${provider.apiKey || process.env.OPENAI_API_KEY}` } : {}),
                 },
-                body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: toolsDefinition, stream: true, stream_options: { include_usage: true } }),
+                body: JSON.stringify({ model: activeModel, messages: apiMessages, tools: [...toolsDefinition, ...getMcpTools()], stream: true, stream_options: { include_usage: true } }),
               });
               if (!res2.ok) throw new Error(`${res2.status} API Error`);
               const reader2 = res2.body.getReader();
@@ -1150,6 +1409,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         setInput('');
         return;
       } else if (lowerQuery === '/exit') {
+        stopAllServers();
         process.exit(0);
       } else {
         setMessages(prev => [...prev, { role: 'user', content: query }, { role: 'system', content: `[Error] Unknown command. Type /help for available commands.` }]);
@@ -1158,8 +1418,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       return;
     }
 
+    // Strip mentions for TUI display
+    const displayedQuery = trimmedQuery.replace(/@\[([^\]]+)\]/g, '$1').replace(/(^|\s)@([a-zA-Z0-9_\-\.\/]+)/g, '$1$2');
+
+    // Parse and load file attachments
+    let fileAttachments = '';
+    const fileMentions = [];
+    const bracketRegex = /@\[([^\]]+)\]/g;
+    let match;
+    while ((match = bracketRegex.exec(trimmedQuery)) !== null) {
+      fileMentions.push(match[1]);
+    }
+    const plainRegex = /(?:^|\s)@([a-zA-Z0-9_\-\.\/]+)/g;
+    while ((match = plainRegex.exec(trimmedQuery)) !== null) {
+      if (!fileMentions.includes(match[1])) {
+        fileMentions.push(match[1]);
+      }
+    }
+
+    for (const mention of fileMentions) {
+      try {
+        const fullPath = path.resolve(currentCwd, mention);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        fileAttachments += `\n\n[File Content of ${mention}]:\n${content}`;
+      } catch (err) {
+        // file doesn't exist or is directory
+      }
+    }
+
+    const apiQuery = displayedQuery + fileAttachments;
+
     if (activeTeam !== 'solo') {
-      const conversation = [...messages, { role: 'user', content: trimmedQuery }];
+      const conversation = [...messages, { role: 'user', content: trimmedQuery, apiContent: apiQuery }];
       setMessages(conversation);
       setInput('');
       
@@ -1170,14 +1460,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       }
       
       if (!managerExists) {
-        await handleTeamSpawn({ task: trimmedQuery, team_id: activeTeam });
+        await handleTeamSpawn({ task: apiQuery, team_id: activeTeam });
       } else {
-        await handleTeamMessage({ role: 'manager', message: trimmedQuery }, null, { senderRole: 'user' });
+        await handleTeamMessage({ role: 'manager', message: apiQuery }, null, { senderRole: 'user' });
       }
       return;
     }
 
-    let conversation = [...messages, { role: 'user', content: trimmedQuery }];
+    let conversation = [...messages, { role: 'user', content: trimmedQuery, apiContent: apiQuery }];
     setMessages(conversation);
     setInput('');
     setIsLoading(true);
@@ -1200,7 +1490,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       let requiresApiCall = true;
 
       while (requiresApiCall && !controller.signal.aborted) {
-        const apiMessages = [systemPrompt, ...conversation.filter(m => m.role !== 'system' && m.role !== 'tool_call')];
+        const apiMessages = getApiMessages(conversation, systemPrompt);
 
         const res = await fetch(`${provider.baseUrl}/chat/completions`, {
           signal: controller.signal,
@@ -1212,7 +1502,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           body: JSON.stringify({
             model: activeModel,
             messages: apiMessages,
-            tools: toolsDefinition,
+            tools: [...toolsDefinition, ...getMcpTools()],
             stream: true,
             stream_options: { include_usage: true },
           }),
@@ -1441,7 +1731,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     } catch {}
   };
 
-  const { visibleLines, actualScroll } = useMemo(() => {
+  const handleAddProvider = async (newP) => {
+    setProviders(prev => {
+      const next = [...prev];
+      const idx = next.findIndex(p => p.name === newP.name);
+      if (idx >= 0) {
+        next[idx] = newP;
+      } else {
+        next.push(newP);
+      }
+      saveConfig({ providers: next });
+      return next;
+    });
+    await handleSelectProvider(newP);
+  };
+
+  const handleDeleteProvider = async (name) => {
+    setProviders(prev => {
+      const next = prev.filter(p => p.name !== name);
+      saveConfig({ providers: next });
+      return next;
+    });
+  };
+
+  const handleSelectProvider = async (selectedP) => {
+    setProvider(selectedP);
+    setBaseUrl(selectedP.baseUrl);
+    if (selectedP.apiKey) {
+      setApiKey(selectedP.apiKey);
+      await saveEnv('OPENAI_API_KEY', selectedP.apiKey);
+      process.env.OPENAI_API_KEY = selectedP.apiKey;
+    }
+    await saveEnv('BASE_URL', selectedP.baseUrl);
+    if (selectedP.modelsUrl) {
+      await saveEnv('MODELS_URL', selectedP.modelsUrl);
+    } else {
+      await saveEnv('MODELS_URL', '');
+    }
+    await saveConfig({ provider: selectedP });
+
+    try {
+      const modelKey = selectedP.apiKey || process.env.OPENAI_API_KEY || '';
+      const modelsUrl = selectedP.modelsUrl || `${selectedP.baseUrl}/models`;
+      const res = await fetch(modelsUrl, {
+        headers: modelKey ? { 'Authorization': `Bearer ${modelKey}` } : {},
+      });
+      const json = await res.json();
+      if (json && json.data) {
+        const ids = json.data.map(m => m.id);
+        setAvailableModels(ids);
+        if (ids.length > 0) {
+          setActiveModel(ids[0]);
+          saveModel(ids[0]);
+        }
+      } else {
+        setAvailableModels([]);
+      }
+    } catch {
+      setAvailableModels([]);
+    }
+
+    let switchMsg = `[System] Switched to provider: ${selectedP.name} (${selectedP.baseUrl})`;
+    if (selectedP.name === 'opengateway' && !selectedP.apiKey && !process.env.OPENAI_API_KEY) {
+      switchMsg += `\n[Notice] API key required. Get one at: https://gitlawb.com/opengateway/dashboard\nThen set it using: /apikey <key>`;
+    }
+    setMessages(prev => [...prev, { role: 'system', content: switchMsg }]);
+    setShowProviderSelector(false);
+  };
+
+  const parsedChatLines = useMemo(() => {
     const usableWidth = termWidth - 4;
     const userTextWidth = termWidth - 8;
     const allLines = [];
@@ -1449,13 +1807,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     messages.forEach(msg => {
       if (msg.role === 'tool') return;
 
+      const cLen = msg.content?.length || 0;
+      const rLen = msg.reasoning_content?.length || 0;
+      const sType = msg.status || 'unknown';
+      const cacheKey = `${cLen}_${rLen}_${termWidth}_${showThinking}_${usableWidth}_${sType}`;
+      
+      const cached = messageLinesCache.get(msg);
+      if (cached && cached.key === cacheKey) {
+        cached.lines.forEach(l => allLines.push(l));
+        return;
+      }
+      
+      const msgLines = [];
+      const pushLine = (line) => msgLines.push(line);
+
       if (msg.role === 'tool_call') {
         if (msg.status === 'pending_confirmation') {
-          allLines.push({
+          pushLine({
             type: 'tool_status',
-            icon: '⚠️',
-            color: '#FBBF24',
-            content: `${msg.name} (pending confirmation...)`,
+            icon: '›',
+            color: '#737373',
+            content: msg.name,
           });
         } else {
           const toolLines = formatToolResult(
@@ -1463,72 +1835,196 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
             msg.status === 'running' ? null : msg.result,
             usableWidth
           );
-          toolLines.forEach(line => allLines.push(line));
+          toolLines.forEach(line => pushLine(line));
         }
-        allLines.push({ type: 'spacer' });
+        pushLine({ type: 'spacer' });
+        messageLinesCache.set(msg, { key: cacheKey, lines: msgLines });
+        msgLines.forEach(l => allLines.push(l));
         return;
       }
 
       if (msg.role === 'user') {
-        const wrapped = wrapText(msg.content, userTextWidth);
-        allLines.push({ type: 'user', lines: wrapped });
+        const cleanContent = formatMarkdown(msg.content);
+        const wrapped = wrapText(cleanContent, userTextWidth);
+        pushLine({ type: 'user', lines: wrapped });
       } else if (msg.role === 'system') {
         if (msg.isHelperResult) {
           const wrapped = wrapText(msg.content, usableWidth);
-          wrapped.forEach(line => allLines.push({
+          wrapped.forEach(line => pushLine({
             type: 'helper_result',
             helperRole: msg.helperRole,
             content: line
           }));
         } else {
           const wrapped = wrapText(msg.content, usableWidth);
-          wrapped.forEach(line => allLines.push({ type: 'system', content: line }));
+          wrapped.forEach(line => pushLine({ type: 'system', content: line }));
         }
       } else {
         if (msg.reasoning_content) {
           if (showThinking) {
-            const cleanReasoning = formatMarkdown(msg.reasoning_content);
-            const wrappedReasoning = wrapText(cleanReasoning, usableWidth - 4);
-            allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to collapse)' });
-            wrappedReasoning.forEach((line) => {
-              allLines.push({
-                type: 'reasoning',
-                content: line
-              });
+            pushLine({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to collapse)' });
+            const rawLines = msg.reasoning_content.split('\n');
+            rawLines.forEach(rawLine => {
+              if (rawLine.length <= usableWidth - 4) {
+                pushLine({ type: 'reasoning', content: rawLine });
+              } else {
+                const wrapped = wrapText(rawLine, usableWidth - 4);
+                wrapped.forEach(wl => pushLine({ type: 'reasoning', content: wl }));
+              }
             });
           } else {
-            allLines.push({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to expand)' });
+            pushLine({ type: 'reasoning_header', content: '[Thinking Process] (Ctrl+T to expand)' });
           }
         }
         const cleanContent = formatMarkdown(msg.content || '');
         if (cleanContent) {
-          const wrapped = wrapText(cleanContent, usableWidth - 6);
-          const boxW = Math.min(usableWidth - 2, 78);
+          const boxW = Math.min(usableWidth - 2, 120);
+          const wrapped = wrapText(cleanContent, boxW - 6);
           const label = ' assistant ';
-          const topLine = '┌─' + label + '─'.repeat(Math.max(0, boxW - label.length - 3)) + '┐';
-          const botLine = '└' + '─'.repeat(boxW - 2) + '┘';
-          allLines.push({ type: 'box_border', content: topLine });
-          wrapped.forEach((line, idx) => allLines.push({ type: 'assistant', content: line, isFirst: idx === 0 }));
-          allLines.push({ type: 'box_border', content: botLine });
+          const topLine = chalk.hex('#2a2a2a')('┌─') + chalk.hex('#555555')(label) + chalk.hex('#2a2a2a')('─'.repeat(Math.max(0, boxW - label.length - 3)) + '┐');
+          const botLine = chalk.hex('#2a2a2a')('└' + '─'.repeat(Math.max(0, boxW - 2)) + '┘');
+          pushLine({ type: 'box_border', content: topLine });
+          wrapped.forEach((line, idx) => pushLine({ type: 'assistant', content: line, isFirst: idx === 0, boxW }));
+          pushLine({ type: 'box_border', content: botLine });
         }
       }
-      allLines.push({ type: 'spacer' });
+      pushLine({ type: 'spacer' });
+      
+      messageLinesCache.set(msg, { key: cacheKey, lines: msgLines });
+      msgLines.forEach(l => allLines.push(l));
     });
 
     if (allLines.length > 0 && allLines[allLines.length - 1].type === 'spacer') allLines.pop();
+    
+    return allLines;
+  }, [messages, termWidth, showThinking]);
 
-    // Fixed height chat area with user-controlled scroll
-    const headerRows = 8;
-    const inputRows = 4;
-    const footerRows = 2;
-    const availableHeight = Math.max(5, termHeight - headerRows - inputRows - footerRows);
-    const maxScroll = Math.max(0, allLines.length - availableHeight);
+  const { visibleLines, actualScroll, availableHeight } = useMemo(() => {
+
+    // Dynamic height calculation to completely prevent TUI reflow & flickering
+    // 1. PaddingY={1} in the root Box adds exactly 2 blank lines (1 top, 1 bottom)
+    let nonChatHeight = 2;
+
+    // 2. Top Header elements
+    // <Box justifyContent="space-between"> ◆ agent... takes 1 line
+    nonChatHeight += 1;
+    // <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text> takes 1 line
+    nonChatHeight += 1;
+
+    // 3. Helper Agents list
+    if (activeTeam === 'solo') {
+      const runningHelpersCount = activeAgents.filter(a => a.isHelper && a.status === 'running').length;
+      if (runningHelpersCount > 0) {
+        nonChatHeight += runningHelpersCount;
+      }
+    }
+
+    // 4. CommandDropdown component height
+    if (showDropdown) {
+      let dropdownItemsCount = 0;
+      const fuzzyMatchLocal = (query, text) => {
+        const q = query.toLowerCase();
+        const t = text.toLowerCase();
+        if (t.startsWith(q)) return true;
+        let qi = 0;
+        for (let i = 0; i < t.length && qi < q.length; i++) {
+          if (t[i] === q[qi]) qi++;
+        }
+        return qi === q.length;
+      };
+
+      if (input.includes('@') && fileList && fileList.length > 0) {
+        const lastAt = input.lastIndexOf('@');
+        const query = input.slice(lastAt + 1).toLowerCase();
+        const filtered = fileList.filter(f => fuzzyMatchLocal(query, f));
+        dropdownItemsCount = filtered.length;
+      } else if (input.startsWith('/model ') && availableModels && availableModels.length > 0) {
+        const query = input.slice(7).toLowerCase();
+        const filtered = availableModels.filter(m => fuzzyMatchLocal(query, m));
+        dropdownItemsCount = filtered.length;
+      } else if ((input.startsWith('/resume ') || input.startsWith('/delete ')) && pickerSessions && pickerSessions.length > 0) {
+        const query = (input.split(' ')[1] || '').toLowerCase();
+        const filtered = pickerSessions.filter(s => {
+          const title = (s.title || s.preview || s.id || '').toLowerCase();
+          return fuzzyMatchLocal(query, title);
+        });
+        dropdownItemsCount = filtered.length;
+      } else if ((input.startsWith('/rewind ') || input.startsWith('/branch ')) && checkpointList && checkpointList.length > 0) {
+        dropdownItemsCount = checkpointList.length;
+      } else {
+        const filtered = COMMANDS.filter(c => fuzzyMatchLocal(input, c.cmd));
+        dropdownItemsCount = filtered.length;
+      }
+
+      if (dropdownItemsCount > 0) {
+        nonChatHeight += Math.min(dropdownItemsCount, 5); // MAX_VISIBLE is 5
+      }
+    }
+
+    // 5. Tool Confirmation or InputBox/ActiveAgents
+    if (pendingConfirmation) {
+      nonChatHeight += 2; // ToolConfirmation takes exactly 2 lines
+    } else {
+      // Active agents list
+      if (activeAgents.length > 0) {
+        // Box has marginY={1} which adds exactly 2 lines (1 top, 1 bottom)
+        nonChatHeight += 2;
+        // Separator/header: <Text color="#2a2a2a">{"─".repeat... takes 1 line
+        nonChatHeight += 1;
+        // Each agent takes 1 line
+        nonChatHeight += activeAgents.length;
+        // If an agent is expanded, it shows up to 5 logs
+        if (expandedAgent !== null) {
+          const matchingAgent = activeAgents.find(a => a.id === expandedAgent);
+          if (matchingAgent && matchingAgent.log) {
+            nonChatHeight += Math.min(matchingAgent.log.length, 5);
+          }
+        }
+        // Footer hint: <Text color="#2a2a2a">{"─".repeat... takes 1 line
+        nonChatHeight += 1;
+      }
+
+      // InputBox
+      const inputLines = input.split('\n');
+      if (inputLines.length > 5) {
+        nonChatHeight += 3;
+      } else {
+        nonChatHeight += 2 + inputLines.length;
+      }
+    }
+
+    // 6. Bottom footer elements
+    // <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text> takes 1 line
+    nonChatHeight += 1;
+    // <Box justifyContent="space-between"> displayDir ... takes 1 line
+    nonChatHeight += 1;
+
+    const availableHeight = Math.max(5, termHeight - nonChatHeight);
+    const maxScroll = Math.max(0, parsedChatLines.length - availableHeight);
     const curScroll = Math.max(0, Math.min(chatScroll, maxScroll));
-    const startIndex = Math.max(0, allLines.length - availableHeight - curScroll);
-    const lines = allLines.slice(startIndex, startIndex + availableHeight);
+    const startIndex = Math.max(0, parsedChatLines.length - availableHeight - curScroll);
+    const lines = parsedChatLines.slice(startIndex, startIndex + availableHeight);
 
-    return { visibleLines: lines, actualScroll: curScroll, maxScroll };
-  }, [messages, termWidth, termHeight, chatScroll]);
+    return { visibleLines: lines, actualScroll: curScroll, maxScroll, availableHeight };
+  }, [
+    parsedChatLines,
+    termHeight,
+    chatScroll,
+    activeTeam,
+    activeAgents,
+    showDropdown,
+    input,
+    dropdownModels,
+    dropdownSessions,
+    dropdownFiles,
+    checkpointList,
+    pendingConfirmation,
+    expandedAgent,
+    fileList,
+    dropdownIndex,
+    availableModels,
+    pickerSessions
+  ]);
 
   if (showTeamSelector) {
     return (
@@ -1599,6 +2095,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     );
   }
 
+  if (showProviderSelector) {
+    return (
+      <ProviderSelector
+        providers={providers}
+        activeProvider={provider}
+        onSelect={handleSelectProvider}
+        onAdd={handleAddProvider}
+        onDelete={handleDeleteProvider}
+        onClose={() => setShowProviderSelector(false)}
+        termWidth={termWidth}
+        termHeight={termHeight}
+      />
+    );
+  }
+
   if (showModelSelector) {
     return (
       <ModelSelector
@@ -1619,10 +2130,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         onSelect={async (session) => {
           const full = await loadSession(session.id);
           if (full) {
-            setMessages(full.messages);
             setSessionId(full.id);
+            setSessionTitle(full.title || null);
+            isGeneratingTitle.current = !!full.title;
             if (full.model) { setActiveModel(full.model); saveModel(full.model); }
-            setMessages(prev => [...prev, { role: 'system', content: `[System] Resumed: ${full.title || full.id}` }]);
+            setMessages([...full.messages, { role: 'system', content: `[System] Resumed: ${full.title || full.id}` }]);
           }
           setShowSessionPicker(false);
         }}
@@ -1684,7 +2196,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={2} paddingY={1}>
       <Box justifyContent="space-between">
         <Box>
-          <Text color="#888888">  ◆ agent</Text>
+          <Text color="#888888">  ◆ vibe-terminal{appVersion ? ` v${appVersion}` : ' agent'}</Text>
+          {updateAvailable && <Text color="#d4a574">  ({updateAvailable})</Text>}
         </Box>
         <Box>
           <Text color="#d4a574">{activeModel.length > 20 ? activeModel.slice(0, 20) + '..' : activeModel}</Text>
@@ -1694,13 +2207,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       </Box>
       <Text color="#2a2a2a">{"─".repeat(termWidth - 4)}</Text>
 
-      <Box flexDirection="column" flexGrow={1} marginY={0} overflow="hidden">
+      <Box flexDirection="column" height={availableHeight} marginY={0} overflow="hidden">
         {visibleLines.map((line, i) => {
           if (line.type === 'user') {
             return (
               <Box key={i} flexDirection="column" width="100%">
                 {line.lines.map((text, j) => {
-                  const padLen = Math.max(0, termWidth - 4 - text.length);
+                  const padLen = Math.max(0, termWidth - 4 - stripAnsi(text).length);
                   return (
                     <Text key={j}>{chalk.bgHex('#141414')(chalk.hex('#f0f0f0')(text) + ' '.repeat(padLen))}</Text>
                   );
@@ -1708,7 +2221,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
               </Box>
             );
           } else if (line.type === 'system') {
-            return <Text key={i} color="#d4a574">{line.content}</Text>;
+            const isError = line.content.startsWith('[Error]');
+            const cleanContent = line.content.replace(/^\[System\]\s*/i, '').replace(/^\[Error\]\s*/i, '');
+            return (
+              <Box key={i} paddingLeft={2}>
+                <Text color={isError ? "#EF4444" : "#737373"} dimColor={!isError} italic>
+                  {isError ? '!' : '›'} {cleanContent}
+                </Text>
+              </Box>
+            );
           } else if (line.type === 'helper_result') {
             const roleColor = ROLE_COLORS[line.helperRole] || '#888888';
             const roleIcon = ROLE_ICONS[line.helperRole] || '◇';
@@ -1722,10 +2243,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
           } else if (line.type === 'reasoning') {
             return <Text key={i} color="#444444" italic>  {line.content}</Text>;
           } else if (line.type === 'assistant') {
-            if (!line.content) return null;
-            return <Text key={i} color="#f0f0f0">  │  {line.content}</Text>;
+            if (typeof line.content !== 'string') return null;
+            const textLen = stripAnsi(line.content).length;
+            const padLen = Math.max(0, (line.boxW || 78) - 6 - textLen);
+            return (
+              <Text key={i}>
+                <Text color="#2a2a2a">{'  │  '}</Text>
+                <Text color="#f0f0f0">{line.content}</Text>
+                {' '.repeat(padLen)}
+                <Text color="#2a2a2a">{'  │'}</Text>
+              </Text>
+            );
           } else if (line.type === 'box_border') {
-            return <Text key={i} color="#2a2a2a">  {line.content}</Text>;
+            return <Text key={i}>  {line.content}</Text>;
           } else if (line.type === 'tool_status') {
             const icon = chalk.hex(line.color)(line.icon);
             const detail = line.detail || '';
@@ -1862,6 +2392,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
         <Text color="#888888">{displayDir}</Text>
         <Box>
           <Text color="#444444">Mode: {askBeforeEdits ? 'ask' : 'auto'}</Text>
+          {activeServers.size > 0 ? (
+            <>
+              <Text color="#444444">  ·  mcp: </Text>
+              <Text color="#D77757">{Array.from(activeServers.values()).filter(s => s.status === 'connected').length}/{activeServers.size}</Text>
+            </>
+          ) : null}
           {activeTeam !== 'solo' ? (
             <>
               <Text color="#444444">  ·  </Text>
