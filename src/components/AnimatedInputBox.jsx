@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { ThinkingText } from './ThinkingText.jsx';
 import { COLORS } from '../constants.js';
 
-const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit'];
+const SLASH_COMMANDS = ['/help', '/model', '/apikey', '/provider', '/rewind', '/branch', '/clear', '/init', '/resume', '/delete', '/exit', '/mcp'];
 
 export const AnimatedInputBox = ({ isLoading, input, selectedFile }) => {
 

@@ -1,9 +1,16 @@
 {
-  "name": "vibe-code",
-  "version": "1.0.0",
+  "name": "@beyondbday/vibe-terminal",
+  "version": "1.1.22",
   "type": "module",
+  "bin": {
+    "vibe": "dist/vibe.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "start": "tsx src/index.jsx"
+    "start": "tsx src/index.jsx",
+    "build": "node build.js"
   },
   "dependencies": {
     "ink": "^4.0.0",
@@ -14,6 +21,7 @@
     "wrap-ansi": "^10.0.0"
   },
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "tsx": "^4.0.0"
   }
 }

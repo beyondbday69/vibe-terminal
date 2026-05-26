@@ -23,7 +23,7 @@ export async function saveSession(id, messages, model, title) {
     model,
     title: finalTitle,
     favorite,
-    messages: messages.filter(m => m.role !== 'tool_call'),
+    messages: messages,
     savedAt: new Date().toISOString(),
     messageCount: messages.length,
     preview: getPreview(messages),
@@ -39,10 +39,52 @@ export async function setSessionFavorite(id, fav) {
   return true;
 }
 
+export function repairLegacySession(messages) {
+  if (!messages) return [];
+  const newMsgs = [];
+  for (const m of messages) {
+    newMsgs.push(m);
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      for (const call of m.tool_calls) {
+        const exists = messages.some(x => x.role === 'tool_call' && x.toolId === call.id);
+        if (!exists) {
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(call.function.arguments); } catch {}
+          
+          const toolRes = messages.find(x => x.role === 'tool' && x.tool_call_id === call.id);
+          let status = toolRes ? 'completed' : 'running';
+          let result = null;
+          if (toolRes) {
+            try {
+              result = JSON.parse(toolRes.content);
+            } catch {
+              result = { type: 'generic', message: toolRes.content };
+            }
+          }
+          
+          newMsgs.push({
+            role: 'tool_call',
+            toolId: call.id,
+            name: call.function.name,
+            args: parsedArgs,
+            status,
+            result
+          });
+        }
+      }
+    }
+  }
+  return newMsgs;
+}
+
 export async function loadSession(id) {
   try {
     const raw = await fs.readFile(sessionFilename(id), 'utf-8');
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    if (data && data.messages) {
+      data.messages = repairLegacySession(data.messages);
+    }
+    return data;
   } catch {
     return null;
   }

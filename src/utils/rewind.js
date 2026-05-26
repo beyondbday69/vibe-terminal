@@ -39,7 +39,7 @@ export async function createCheckpoint(sessionId, messages, label) {
   const checkpoint = {
     index: cpIndex,
     sessionId,
-    messages: messages.filter(m => m.role !== 'tool_call'),
+    messages: messages,
     label: label || `checkpoint_${cpIndex}`,
     createdAt: new Date().toISOString(),
     messageCount: messages.length,
